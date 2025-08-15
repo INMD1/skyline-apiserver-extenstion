@@ -1,5 +1,0 @@
----
-features:
-  - |
-    Add ``log_file`` config into skyline.yaml.sample. Now the log
-    path of skyline is log_dir with log_file, no other hardcode path.

@@ -1,4 +1,0 @@
----
-features:
-  - |
-    Add single sign-on (SSO) support. Skyline login with SSO configured with OpenID Connect.

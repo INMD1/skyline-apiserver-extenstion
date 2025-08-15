@@ -1,6 +1,0 @@
----
-features:
-  - |
-    Add ``default_project_id`` into profile to return.
-  - |
-    If user has default_project_id, then we will login into this project as default.

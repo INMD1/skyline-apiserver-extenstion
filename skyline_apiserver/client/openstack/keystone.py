@@ -24,7 +24,36 @@ from keystoneauth1.session import Session
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
 
+## 개인 추가
+import httpx
+from schemas.user import SignupRequest
+from config import setting
 
+##개인 추가
+async def create_user(user: SignupRequest):
+    headers = {
+        "X-Auth-Token": setting.ADMIN_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "user": {
+            "name": user.username,
+            "domain_id": "default",
+            "password": user.password,
+            "default_project_id": setting.DEFAULT_PROJECT_ID
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        url = f"{setting.KEYSTONE_URL}/v3/users"
+        response = await client.post(url, json=payload, headers=headers)
+
+    if response.status_code == 201:
+        return True, "User created"
+    else:
+        return False, response.text
+    
 def list_projects(
     profile: schemas.Profile,
     session: Session,

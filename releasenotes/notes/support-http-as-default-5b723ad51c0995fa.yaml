@@ -1,5 +1,0 @@
----
-features:
-  - |
-    The nginx.conf.j2 support both http and https. By default, if we
-    do not supply the ssl_certfile and ssl_keyfile, nginx will use http.

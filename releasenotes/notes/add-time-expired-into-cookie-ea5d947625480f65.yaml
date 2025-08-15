@@ -1,5 +1,0 @@
----
-features:
-  - |
-    Add ``time_expired`` into cookie, so that skyline-console can follow this
-    value to check whether the token is valid or not.

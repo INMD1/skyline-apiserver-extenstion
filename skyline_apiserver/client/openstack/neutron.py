@@ -24,8 +24,35 @@ from neutronclient.v2_0.client import _GeneratorWithMeta
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
+    
+import httpx
+from schemas.portforward import PortForwardRequest
+from config import setting
 
+## 개인적으로 추가
+async def create_port_forwarding(req: PortForwardRequest):
+    headers = {
+        "X-Auth-Token": setting.ADMIN_TOKEN,
+        "Content-Type": "application/json"
+    }
 
+    payload = {
+        "port_forwarding": {
+            "internal_ip_address": req.internal_ip,
+            "internal_port": req.internal_port,
+            "external_port": req.external_port,
+            "protocol": req.protocol
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        url = f"{setting.NEUTRON_URL}/v2.0/floatingips/{req.floating_ip_id}/port_forwardings"
+        response = await client.post(url, json=payload, headers=headers)
+
+    if response.status_code == 201:
+        return {"success": True}
+    else:
+        return {"success": False, "error": response.text}
 def list_networks(
     profile: schemas.Profile,
     session: Session,
