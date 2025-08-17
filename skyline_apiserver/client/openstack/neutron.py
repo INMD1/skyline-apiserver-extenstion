@@ -30,29 +30,38 @@ from schemas.portforward import PortForwardRequest
 from config import setting
 
 ## 개인적으로 추가
-async def create_port_forwarding(req: PortForwardRequest):
-    headers = {
-        "X-Auth-Token": setting.ADMIN_TOKEN,
-        "Content-Type": "application/json"
-    }
+def create_port_forwarding(conn, fip_id, internal_ip, internal_port, external_port=None, protocol='tcp'):
+    try:
+        if not external_port:
+            external_port = get_next_available_port(conn, fip_id)
+        return conn.network.create_port_forwarding(
+            floatingip_id=fip_id,
+            external_port=external_port,
+            internal_port=internal_port,
+            internal_ip_address=internal_ip,
+            protocol=protocol
+        )
+    except Exception as e:
+        raise Exception(f"포트포워딩 생성 실패: {e}")
 
-    payload = {
-        "port_forwarding": {
-            "internal_ip_address": req.internal_ip,
-            "internal_port": req.internal_port,
-            "external_port": req.external_port,
-            "protocol": req.protocol
-        }
-    }
+def delete_port_forwarding(conn, fip_id, pf_id):
+    try:
+        return conn.network.delete_port_forwarding(floatingip_id=fip_id, port_forwarding_id=pf_id)
+    except Exception as e:
+        raise Exception(f"포트포워딩 삭제 실패: {e}")
 
-    async with httpx.AsyncClient() as client:
-        url = f"{setting.NEUTRON_URL}/v2.0/floatingips/{req.floating_ip_id}/port_forwardings"
-        response = await client.post(url, json=payload, headers=headers)
+def create_security_group_rule(conn, sg_id, direction, remote_group_id):
+    try:
+        return conn.network.create_security_group_rule(
+            security_group_id=sg_id,
+            direction=direction,
+            remote_group_id=remote_group_id,
+            ethertype='IPv4'
+        )
+    except Exception as e:
+        raise Exception(f"보안 그룹 룰 생성 실패: {e}")
+    
 
-    if response.status_code == 201:
-        return {"success": True}
-    else:
-        return {"success": False, "error": response.text}
 def list_networks(
     profile: schemas.Profile,
     session: Session,
@@ -102,3 +111,12 @@ def list_ports(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+def find_fip_for_ssh(conn, tag="ssh-public"):
+    """
+    특정 태그나 설명이 붙은 Floating IP를 찾아 반환
+    """
+    for fip in conn.network.floating_ips():
+        if (getattr(fip, "description", "") == tag) or (hasattr(fip, "tags") and tag in fip.tags):
+            return fip
+    raise Exception("SSH 전용 Floating IP를 찾을 수 없습니다.")

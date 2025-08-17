@@ -94,3 +94,17 @@ def list_services(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+def create_instance_with_network(conn, name, image_id, flavor_id, net_id, key_name):
+    try:
+        server = conn.compute.create_server(
+            name=name,
+            image_id=image_id,
+            flavor_id=flavor_id,
+            networks=[{"uuid": net_id}],
+            key_name=key_name
+        )
+        server = conn.compute.wait_for_server(server)
+        return server
+    except Exception as e:
+        raise Exception(f"인스턴스 생성 실패: {e}")
