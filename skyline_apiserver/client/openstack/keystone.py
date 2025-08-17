@@ -26,8 +26,8 @@ from skyline_apiserver.client import utils
 
 ## 개인 추가
 import httpx
-from schemas.user import SignupRequest
-from config import setting
+from skyline_apiserver.schemas.user import SignupRequest
+from skyline_apiserver.config import setting
 
 ##개인 추가
 async def create_user(user: SignupRequest):

@@ -26,8 +26,8 @@ from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
     
 import httpx
-from schemas.portforward import PortForwardRequest
-from config import setting
+from skyline_apiserver.schemas.portforward import PortForwardRequest
+from skyline_apiserver.config import setting
 
 ## 개인적으로 추가
 def create_port_forwarding(conn, fip_id, internal_ip, internal_port, external_port=None, protocol='tcp'):

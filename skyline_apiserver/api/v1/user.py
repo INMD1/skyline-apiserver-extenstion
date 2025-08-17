@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from schemas.user import SignupRequest
-from client.openstack.keystone import create_user
+from skyline_apiserver.schemas.user import SignupRequest
+from skyline_apiserver.client.openstack.keystone import create_user
 
 router = APIRouter()
 

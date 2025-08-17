@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from schemas.portforward import PortForwardRequest
-from client.openstack.neutron import create_port_forwarding
+from skyline_apiserver.schemas.portforward import PortForwardRequest
+from skyline_apiserver.client.openstack.neutron import create_port_forwarding
 
 router = APIRouter()
 
