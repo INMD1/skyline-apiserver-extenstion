@@ -43,23 +43,6 @@ def create_instance(image_id: str, flavor_id: str, key_name: str, user_project_i
         return {"error": str(e)}
 
 
-@router.post("/port-forwarding/add")
-def add_port_forwarding(data: PortForwardingRequest, user_project_id: str):
-    try:
-        conn = get_openstack_conn(project_id=user_project_id)
-        pf = neutron.create_port_forwarding(
-            conn,
-            fip_id=data.fip_id,
-            internal_ip=data.internal_ip,
-            internal_port=data.internal_port,
-            external_port=data.external_port,
-            protocol=data.protocol
-        )
-        return {"message": "포트포워딩 생성됨", "pf": pf.to_dict()}
-    except Exception as e:
-        return {"error": str(e)}
-
-
 @router.post("/port-forwarding/delete")
 def delete_port_forwarding(data: PortForwardingDeleteRequest, user_project_id: str):
     try:
@@ -72,17 +55,18 @@ def delete_port_forwarding(data: PortForwardingDeleteRequest, user_project_id: s
 @router.post("/port-forwarding/add")
 def add_port_forwarding(data: PortForwardingRequest, user_project_id: str):
     conn = get_openstack_conn(project_id=user_project_id)
-
     existing = neutron.get_port_forwardings(conn, data.fip_id)
-    if len(existing) >= 5:  # 제한 수 (예: 5개)
+    if len(existing) >= 5:
         raise HTTPException(status_code=400, detail="최대 포트포워딩 수를 초과했습니다.")
-
-    pf = neutron.create_port_forwarding(
-        conn,
-        fip_id=data.fip_id,
-        internal_ip=data.internal_ip,
-        internal_port=data.internal_port,
-        external_port=data.external_port,
-        protocol=data.protocol
-    )
-    return {"message": "포트포워딩 생성됨", "pf": pf.to_dict()}
+    try:
+        pf = neutron.create_port_forwarding(
+            conn,
+            fip_id=data.fip_id,
+            internal_ip=data.internal_ip,
+            internal_port=data.internal_port,
+            external_port=data.external_port,
+            protocol=data.protocol
+        )
+        return {"message": "포트포워딩 생성됨", "pf": pf.to_dict()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"포트포워딩 생성 실패: {e}")
