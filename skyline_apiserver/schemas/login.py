@@ -63,6 +63,9 @@ class User(BaseModel):
     id: str = Field(..., description="User ID")
     name: str = Field(..., description="User name")
     domain: Domain = Field(..., description="User domain")
+    email: Optional[str] = Field(None, description="User email")
+    student_id: Optional[str] = Field(None, description="User student id")
+    description: Optional[str] = Field(None, description="User description")
 
 
 class PayloadBase(BaseModel):

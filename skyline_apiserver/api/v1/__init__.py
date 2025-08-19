@@ -14,7 +14,17 @@
 
 from fastapi import APIRouter
 
-from skyline_apiserver.api.v1 import contrib, extension, login, policy, prometheus, setting,user, portforward
+from skyline_apiserver.api.v1 import (
+    contrib,
+    extension,
+    instance,
+    login,
+    policy,
+    portforward,
+    prometheus,
+    setting,
+    user,
+)
 
 api_router = APIRouter()
 api_router.include_router(login.router, tags=["Login"])
@@ -25,3 +35,4 @@ api_router.include_router(policy.router, tags=["Policy"])
 api_router.include_router(setting.router, tags=["Setting"])
 api_router.include_router(user.router)
 api_router.include_router(portforward.router)
+api_router.include_router(instance.router, tags=["Instance"])

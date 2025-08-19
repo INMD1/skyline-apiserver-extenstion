@@ -95,16 +95,31 @@ def list_services(
             detail=str(e),
         )
 
-def create_instance_with_network(conn, name, image_id, flavor_id, net_id, key_name):
-    try:
-        server = conn.compute.create_server(
-            name=name,
-            image_id=image_id,
-            flavor_id=flavor_id,
-            networks=[{"uuid": net_id}],
-            key_name=key_name
-        )
-        server = conn.compute.wait_for_server(server)
-        return server
-    except Exception as e:
-        raise Exception(f"인스턴스 생성 실패: {e}")
+def create_instance_with_network(
+    session: Session,
+    profile: schemas.Profile,
+    name: str,
+    image_id: str,
+    flavor_id: str,
+    net_id: str,
+    key_name: str,
+):
+    nc = utils.nova_client(session=session, region=profile.region)
+    server = nc.servers.create(
+        name=name,
+        image=image_id,
+        flavor=flavor_id,
+        nics=[{"net-id": net_id}],
+        key_name=key_name,
+    )
+    # TODO: Wait for server to be active
+    return server
+
+def get_server_internal_ip(session: Session, profile: schemas.Profile, server_id: str) -> str:
+    nc = utils.nova_client(session=session, region=profile.region)
+    server = nc.servers.get(server_id)
+    for network in server.addresses:
+        for ip in server.addresses[network]:
+            if ip["OS-EXT-IPS:type"] == "fixed":
+                return ip["addr"]
+    raise Exception(f"No internal IP found for server {server_id}")

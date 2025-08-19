@@ -29,31 +29,69 @@ import httpx
 from skyline_apiserver.schemas.user import SignupRequest
 from skyline_apiserver.config import setting
 
-##개인 추가
 async def create_user(user: SignupRequest):
     headers = {
-        "X-Auth-Token": setting.ADMIN_TOKEN,
+        "X-Auth-Token": CONF.openstack.system_user_password,
         "Content-Type": "application/json"
     }
-
-    payload = {
-        "user": {
-            "name": user.username,
-            "domain_id": "default",
-            "password": user.password,
-            "default_project_id": setting.DEFAULT_PROJECT_ID
-        }
-    }
+    keystone_url = CONF.openstack.keystone_url
 
     async with httpx.AsyncClient() as client:
-        url = f"{setting.KEYSTONE_URL}/v3/users"
-        response = await client.post(url, json=payload, headers=headers)
+        # 1. Create a new project for the user
+        project_payload = {
+            "project": {
+                "name": f"{user.username}-project",
+                "description": f"Project for {user.username}",
+                "domain_id": "default",
+                "enabled": True
+            }
+        }
+        project_resp = await client.post(f"{keystone_url}/v3/projects", json=project_payload, headers=headers)
+        if project_resp.status_code != 201:
+            return False, f"Failed to create project: {project_resp.text}"
+        project_data = project_resp.json()
+        new_project_id = project_data['project']['id']
 
-    if response.status_code == 201:
-        return True, "User created"
-    else:
-        return False, response.text
-    
+        # 2. Create the new user, assigning them to the new project
+        user_payload = {
+            "user": {
+                "name": user.username,
+                "description": user.name,
+                "domain_id": "default",
+                "password": user.password,
+                "default_project_id": new_project_id,
+                "email": user.email,
+                "student_id": user.student_id
+            }
+        }
+        user_resp = await client.post(f"{keystone_url}/v3/users", json=user_payload, headers=headers)
+        if user_resp.status_code != 201:
+            # TODO: Rollback project creation
+            return False, f"Failed to create user: {user_resp.text}"
+        user_data = user_resp.json()
+        new_user_id = user_data['user']['id']
+
+        # 3. Assign 'member' role to the new user on their new project
+        member_role_id = CONF.openstack.member_role_id
+        if not member_role_id:
+            return False, "Member role ID is not configured."
+        member_role_url = f"{keystone_url}/v3/projects/{new_project_id}/users/{new_user_id}/roles/{member_role_id}"
+        member_role_resp = await client.put(member_role_url, headers=headers)
+        if member_role_resp.status_code != 204:
+             return False, f"Failed to assign member role to user: {member_role_resp.text}"
+
+        # 4. Assign 'admin' role to the admin user on the new project
+        admin_user_id = CONF.openstack.admin_user_id
+        admin_role_id = CONF.openstack.admin_role_id
+        if not admin_user_id or not admin_role_id:
+            return False, "Admin user ID or admin role ID is not configured."
+        admin_role_url = f"{keystone_url}/v3/projects/{new_project_id}/users/{admin_user_id}/roles/{admin_role_id}"
+        admin_role_resp = await client.put(admin_role_url, headers=headers)
+        if admin_role_resp.status_code != 204:
+            return False, f"Failed to assign admin role to admin user: {admin_role_resp.text}"
+
+        return True, "User, project, and roles created successfully."
+
 def list_projects(
     profile: schemas.Profile,
     session: Session,

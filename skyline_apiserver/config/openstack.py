@@ -192,6 +192,41 @@ sso_region = Opt(
     default="RegionOne",
 )
 
+admin_role_id = Opt(
+    name="admin_role_id",
+    description="The role ID for admin users.",
+    schema=StrictStr,
+    default="",
+)
+
+member_role_id = Opt(
+    name="member_role_id",
+    description="The role ID for member users.",
+    schema=StrictStr,
+    default="",
+)
+
+admin_user_id = Opt(
+    name="admin_user_id",
+    description="The user ID of the admin to be added to new projects.",
+    schema=StrictStr,
+    default="",
+)
+
+ssh_floating_ip_id = Opt(
+    name="ssh_floating_ip_id",
+    description="The ID of the floating IP to be used for SSH port forwarding.",
+    schema=StrictStr,
+    default="",
+)
+
+shared_floating_ip_project_id = Opt(
+    name="shared_floating_ip_project_id",
+    description="The ID of the project for sourcing shared floating IPs.",
+    schema=StrictStr,
+    default="",
+)
+
 GROUP_NAME = __name__.split(".")[-1]
 ALL_OPTS = (
     enforce_new_defaults,
@@ -213,6 +248,11 @@ ALL_OPTS = (
     service_mapping,
     extension_mapping,
     reclaim_instance_interval,
+    admin_role_id,
+    member_role_id,
+    admin_user_id,
+    ssh_floating_ip_id,
+    shared_floating_ip_project_id,
 )
 
 __all__ = ("GROUP_NAME", "ALL_OPTS")

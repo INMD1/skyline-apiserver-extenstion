@@ -24,6 +24,7 @@ from jose import jwt
 
 from skyline_apiserver import schemas, version
 from skyline_apiserver.client import utils
+from skyline_apiserver.client.openstack.keystone import get_user
 from skyline_apiserver.client.utils import get_system_session
 from skyline_apiserver.config import CONF
 
@@ -54,8 +55,19 @@ def generate_profile(
     uuid_value: Optional[str] = None,
 ) -> schemas.Profile:
     try:
-        kc = utils.keystone_client(session=get_system_session(), region=region)
+        system_session = get_system_session()
+        kc = utils.keystone_client(session=system_session, region=region)
         token_data = kc.tokens.get_token_data(token=keystone_token)
+        user_id = token_data["token"]["user"]["id"]
+        user_info = get_user(id=user_id, region=region, session=system_session)
+        token_data["token"]["user"] = {
+            "id": user_info.id,
+            "name": user_info.name,
+            "domain": token_data["token"]["user"]["domain"],
+            "email": getattr(user_info, "email", None),
+            "student_id": getattr(user_info, "student_id", None),
+            "description": getattr(user_info, "description", None),
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
