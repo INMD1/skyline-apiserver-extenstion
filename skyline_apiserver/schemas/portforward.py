@@ -1,3 +1,4 @@
+# 포트 포워딩 API와 관련된 데이터 스키마를 정의하는 파일입니다.
 from pydantic import BaseModel
 
 class PortForwardRequest(BaseModel):

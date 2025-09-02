@@ -1,3 +1,4 @@
+# Keystone 엔드포인트, 도메인, 리전 목록 조회 등과 같은 유틸리티성 API 엔드포인트를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -71,7 +72,7 @@ def list_keystone_endpoints() -> List[schemas.KeystoneEndpoints]:
     response_description="OK",
 )
 def list_domains(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> List[str]:
     return get_domains("", profile.region)
 

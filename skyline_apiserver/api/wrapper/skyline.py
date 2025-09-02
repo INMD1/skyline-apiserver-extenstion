@@ -1,3 +1,4 @@
+# OpenStack 리소스 데이터를 스카이라인 API에 적합한 형식으로 변환하는 래퍼 클래스를 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

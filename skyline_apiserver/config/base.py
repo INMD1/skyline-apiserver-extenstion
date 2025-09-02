@@ -1,3 +1,4 @@
+# 설정 옵션(Opt), 그룹(Group), 및 전체 설정(Configuration)을 정의하고 관리하기 위한 핵심 클래스를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

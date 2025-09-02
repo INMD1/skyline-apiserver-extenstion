@@ -1,3 +1,4 @@
+# 정책 확인을 위한 핵심 컴포넌트(UserContext, Enforcer)를 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

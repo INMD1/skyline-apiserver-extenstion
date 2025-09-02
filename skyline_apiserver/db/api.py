@@ -1,3 +1,4 @@
+# 데이터베이스 모델과 상호 작용하기 위한 고수준의 데이터베이스 API를 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

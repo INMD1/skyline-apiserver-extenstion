@@ -1,3 +1,4 @@
+# A command line tool that generates Nginx configuration files based on OpenStack endpoints.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +15,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from logging import StreamHandler
 from pathlib import Path, PurePath
@@ -21,7 +23,7 @@ from typing import Dict
 from urllib.parse import urlparse
 
 import click
-from jinja2 import Template
+from jinja2 import Environment, Template
 from keystoneauth1.identity.v3 import Password
 from keystoneauth1.session import Session
 from keystoneclient.client import Client as KeystoneClient
@@ -114,6 +116,10 @@ def get_proxy_endpoints() -> Dict[str, ProxyEndpoint]:
     return dict(sorted(endpoints.items(), key=lambda d: d[0]))
 
 
+def dirname(path: str) -> str:
+    return os.path.dirname(path)
+
+
 @click.command(help="Generate nginx proxy config file.")
 @click.option(
     "-o",
@@ -191,7 +197,9 @@ def main(
         content = ""
         with template_file_path.open() as f:
             content = f.read()
-        template = Template(content)
+        env = Environment()
+        env.filters["dirname"] = dirname
+        template = env.from_string(content)
 
         endpoints = get_proxy_endpoints()
         context = {

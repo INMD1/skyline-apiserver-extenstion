@@ -1,3 +1,4 @@
+# FastAPI 애플리케이션의 메인 파일입니다. 앱 설정, 생명주기 이벤트, 미들웨어, API 라우터 포함 등을 처리합니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,7 +28,11 @@ from starlette.middleware.cors import CORSMiddleware
 from skyline_apiserver.api.v1 import api_router
 from skyline_apiserver.config import CONF, configure
 from skyline_apiserver.context import RequestContext
-from skyline_apiserver.core.security import generate_profile_by_token, parse_access_token
+from skyline_apiserver.core.security import (
+    generate_profile,
+    generate_profile_by_token,
+    parse_access_token,
+)
 from skyline_apiserver.db import api as db_api, setup as db_setup
 from skyline_apiserver.log import LOG, setup as log_setup
 from skyline_apiserver.policy import setup as policies_setup
@@ -75,6 +80,7 @@ async def validate_token(request: Request, call_next):
     # Skip authentication for login and static endpoints
     ignore_urls = [
         f"{constants.API_PREFIX}/login",
+        f"{constants.API_PREFIX}/logout",
         f"{constants.API_PREFIX}/signup",
         f"{constants.API_PREFIX}/websso",
         "/static",
@@ -85,69 +91,12 @@ async def validate_token(request: Request, call_next):
         f"{constants.API_PREFIX}/contrib/keystone_endpoints",
         # f"{constants.API_PREFIX}/contrib/domains",
         f"{constants.API_PREFIX}/contrib/regions",
+        f"{constants.API_PREFIX}/limits",
     ]
 
     for ignore_url in ignore_urls:
         if url_path.startswith(ignore_url):
             return await call_next(request)
-
-    if url_path.startswith(constants.API_PREFIX):
-        # Get token from cookie
-        token = request.cookies.get(CONF.default.session_name)
-        if not token:
-            return JSONResponse(
-                content={"message": "Unauthorized: Token not found"},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        try:
-            # Purge revoked tokens
-            db_api.purge_revoked_token()
-
-            # Parse and validate token
-            parsed_token = parse_access_token(token)
-            is_revoked = db_api.check_token(parsed_token.uuid)
-            if is_revoked:
-                return JSONResponse(
-                    content={"message": "Unauthorized: Token revoked"},
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            # Generate profile from token
-            profile = generate_profile_by_token(parsed_token)
-
-            # Create RequestContext from profile
-            request.state.context = RequestContext(
-                user_id=profile.user.id,
-                project_id=profile.project.id,
-                project_name=profile.project.name,
-                user_domain_id=profile.user.domain.id,
-                project_domain_id=profile.project.domain.id,
-                roles=[role.name for role in profile.roles],
-                auth_token=profile.keystone_token,
-            )
-
-            # Store profile in request state for backward compatibility
-            request.state.profile = profile
-
-            # Check if token needs renewal
-            if 0 < profile.exp - time.time() < CONF.default.access_token_renew:
-                profile.exp = int(time.time()) + CONF.default.access_token_expire
-                # Note: We can't set cookies in middleware, so we'll handle this in the response
-                request.state.token_needs_renewal = True
-                request.state.new_token = profile.toJWTPayload()
-                request.state.new_exp = str(profile.exp)
-
-        except jose.exceptions.ExpiredSignatureError as e:
-            return JSONResponse(
-                content={"message": f"Unauthorized: Token expired - {str(e)}"},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-        except Exception as e:
-            return JSONResponse(
-                content={"message": f"Unauthorized: {str(e)}"},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
 
     response = await call_next(request)
 

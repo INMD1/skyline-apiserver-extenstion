@@ -1,3 +1,4 @@
+# Cinder(블록 스토리지) API와 상호 작용하기 위한 클라이언트 함수들을 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -110,3 +111,17 @@ def get_volume_snapshot(
         )
     except NotFound as e:
         raise e
+
+def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None):
+    try:
+        cc = utils.cinder_client(
+            region=profile.region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return cc.quotas.get(profile.project.id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

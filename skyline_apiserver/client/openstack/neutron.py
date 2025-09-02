@@ -1,3 +1,4 @@
+# Neutron(네트워킹) API와 상호 작용하기 위한 클라이언트 함수들을 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import status
 from fastapi.exceptions import HTTPException
@@ -198,6 +199,76 @@ def list_ports(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None):
+    try:
+        nc = utils.neutron_client(
+            session=session,
+            region=profile.region,
+            global_request_id=global_request_id,
+        )
+        return nc.show_quota(profile.project.id)['quota']
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+def list_routers(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+    try:
+        nc = utils.neutron_client(
+            session=session,
+            region=profile.region,
+            global_request_id=global_request_id,
+        )
+        return nc.list_routers(**kwargs)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+def list_subnets(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+    try:
+        nc = utils.neutron_client(
+            session=session,
+            region=profile.region,
+            global_request_id=global_request_id,
+        )
+        return nc.list_subnets(**kwargs)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+def list_security_groups(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+    try:
+        nc = utils.neutron_client(
+            session=session,
+            region=profile.region,
+            global_request_id=global_request_id,
+        )
+        return nc.list_security_groups(**kwargs)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+def list_floatingips(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+    try:
+        nc = utils.neutron_client(
+            session=session,
+            region=profile.region,
+            global_request_id=global_request_id,
+        )
+        return nc.list_floatingips(**kwargs)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

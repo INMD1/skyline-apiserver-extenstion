@@ -1,3 +1,4 @@
+# 정책 파일 생성, 유효성 검사 등 정책 관리 작업을 위한 커맨드 라인 인터페이스를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

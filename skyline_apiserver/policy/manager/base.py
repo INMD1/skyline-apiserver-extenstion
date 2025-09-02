@@ -1,3 +1,4 @@
+# 정책 규칙을 정의하기 위한 기본 클래스(Rule, APIRule)를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

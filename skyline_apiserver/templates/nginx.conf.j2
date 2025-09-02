@@ -95,6 +95,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_set_header X-Forwarded-Prefix /api/openstack/skyline;
             proxy_set_header Host $http_host;
         }
 
@@ -105,6 +107,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_set_header X-Forwarded-Prefix {{ api_prefix }};
             proxy_set_header Host $http_host;
         }
 
@@ -117,6 +121,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_set_header X-Forwarded-Prefix {{ endpoint["location"] | dirname }};
             proxy_set_header Host {{ endpoint["host"] }};
         {% if endpoint["url"].startswith('https://') %}
             proxy_ssl_protocols TLSv1.2 TLSv1.3;

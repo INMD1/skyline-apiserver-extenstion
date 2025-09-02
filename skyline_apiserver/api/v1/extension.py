@@ -1,3 +1,4 @@
+# 서버, 볼륨, 스냅샷, 포트 등 OpenStack 리소스를 고급 필터링 및 정렬 기능과 함께 조회하는 확장 API 엔드포인트를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -59,7 +60,7 @@ STEP = constants.ID_UUID_RANGE_STEP
     response_description="OK",
 )
 def list_servers(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
@@ -277,7 +278,7 @@ def list_servers(
     response_description="OK",
 )
 def list_recycle_servers(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
@@ -490,7 +491,7 @@ def list_recycle_servers(
     response_description="OK",
 )
 def list_volumes(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
@@ -664,7 +665,7 @@ def list_volumes(
     response_description="OK",
 )
 def list_volume_snapshots(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
@@ -850,7 +851,7 @@ def list_volume_snapshots(
     response_description="OK",
 )
 def list_ports(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
@@ -1036,7 +1037,7 @@ def list_ports(
     response_model_exclude_none=True,
 )
 def compute_services(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,

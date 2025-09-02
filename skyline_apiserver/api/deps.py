@@ -1,3 +1,4 @@
+# FastAPI 의존성 주입(Dependency Injection)을 정의하는 파일입니다. 요청(request)으로부터 사용자 프로필과 JWT 페이로드를 가져오는 함수들을 포함합니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,12 +17,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import status
+from fastapi import Header, status
 from fastapi.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 
 from skyline_apiserver import schemas
+from skyline_apiserver.core.security import generate_profile
 
 
 def getJWTPayload(request: Request) -> Optional[str]:
@@ -48,3 +50,29 @@ def get_profile_update_jwt(request: Request, response: Response) -> schemas.Prof
     # Token renewal is handled in the middleware
     # This function is kept for backward compatibility
     return profile
+
+
+def get_profile_from_header(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> schemas.Profile:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing",
+        )
+
+    token = authorization
+    if token.lower().startswith("bearer "):
+        token = token[7:]
+
+    try:
+        profile = generate_profile(
+            keystone_token=token,
+            region="RegionOne",
+        )
+        return profile
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )

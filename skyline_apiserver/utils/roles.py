@@ -1,3 +1,4 @@
+# 사용자 역할(예: 시스템 관리자)을 확인하는 유틸리티 함수들을 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

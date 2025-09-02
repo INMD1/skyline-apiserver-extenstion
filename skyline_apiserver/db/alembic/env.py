@@ -1,3 +1,4 @@
+# Alembic 마이그레이션 환경을 설정하고 실행하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,3 +1,4 @@
+# 정책 규칙을 조회하고 확인하는 API 엔드포인트를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -93,7 +94,7 @@ def _generate_target(profile: schemas.Profile) -> Dict[str, str]:
     response_description="OK",
 )
 def list_policies(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.Policies:
     session = generate_session(profile)
     access = get_access(session)
@@ -149,7 +150,7 @@ def list_policies(
 )
 def check_policies(
     policy_rules: schemas.PoliciesRules,
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.Policies:
     session = generate_session(profile)
     access = get_access(session)

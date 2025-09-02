@@ -1,3 +1,4 @@
+# 애플리케이션 전반에서 사용되는 다양한 상수들을 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

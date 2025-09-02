@@ -1,3 +1,4 @@
+# JWT 파싱, 토큰 기반 사용자 프로필 생성 등 보안 관련 작업을 처리하는 함수들을 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,3 +1,4 @@
+# 스카이라인 API 서버의 메인 엔트리 포인트입니다. 서버를 시작하거나 디버그 코드를 실행하는 데 사용됩니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

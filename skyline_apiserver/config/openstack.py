@@ -1,3 +1,4 @@
+# Keystone URL, 시스템 사용자 정보 등 OpenStack 연동에 필요한 설정 옵션을 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -227,6 +228,13 @@ shared_floating_ip_project_id = Opt(
     default="",
 )
 
+port_forwarding_limit = Opt(
+    name="port_forwarding_limit",
+    description="Maximum number of port forwardings per project.",
+    schema=StrictInt,
+    default=10,
+)
+
 GROUP_NAME = __name__.split(".")[-1]
 ALL_OPTS = (
     enforce_new_defaults,
@@ -253,6 +261,7 @@ ALL_OPTS = (
     admin_user_id,
     ssh_floating_ip_id,
     shared_floating_ip_project_id,
+    port_forwarding_limit,
 )
 
 __all__ = ("GROUP_NAME", "ALL_OPTS")

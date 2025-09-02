@@ -1,3 +1,4 @@
+# 사용자 로그인, 로그아웃, 프로필 관리, 프로젝트 전환, SSO 등 인증 및 세션 관련 API 엔드포인트를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +26,7 @@ from fastapi.routing import APIRouter
 from keystoneauth1.identity.v3 import Password, Token
 from keystoneauth1.session import Session
 from keystoneclient.client import Client as KeystoneClient
+from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -49,6 +51,11 @@ from skyline_apiserver.log import LOG
 from skyline_apiserver.types import constants
 
 router = APIRouter()
+
+
+class LogoutBody(BaseModel):
+    keystone_token: Optional[str] = None
+    region: Optional[str] = None
 
 
 def _get_default_project_id(
@@ -314,6 +321,7 @@ def websso(
 @router.get(
     "/profile",
     description="Get user profile.",
+    
     responses={
         200: {"model": schemas.Profile},
         401: {"model": schemas.UnauthorizedMessage},
@@ -323,7 +331,7 @@ def websso(
     response_description="OK",
 )
 def get_profile(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
@@ -345,7 +353,7 @@ def get_profile(
 )
 def logout(
     response: Response,
-    request: Request,
+    body: Optional[LogoutBody] = None,
     payload: str = Depends(deps.getJWTPayload),
     x_openstack_request_id: Optional[str] = Header(
         None,
@@ -360,6 +368,19 @@ def logout(
             session = generate_session(profile)
             revoke_token(profile, session, x_openstack_request_id, token.keystone_token)
             db_api.revoke_token(profile.uuid, profile.exp)
+        except Exception as e:
+            LOG.debug(str(e))
+    elif body and body.keystone_token:
+        try:
+            _region = body.region or CONF.openstack.default_region
+            auth_url = utils.get_endpoint(
+                region=_region,
+                service="identity",
+                session=get_system_session(),
+            )
+            auth = Token(auth_url=auth_url, token=body.keystone_token, reauthenticate=False)
+            session = Session(auth=auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT)
+            session.invalidate()
         except Exception as e:
             LOG.debug(str(e))
     response.delete_cookie(CONF.default.session_name)
@@ -379,15 +400,14 @@ def logout(
 )
 def switch_project(
     project_id: str,
-    request: Request,
     response: Response,
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
 ) -> schemas.Profile:
-    profile = deps.get_profile(request)
     region = profile.region
     try:
         project_scope_token = get_project_scope_token(

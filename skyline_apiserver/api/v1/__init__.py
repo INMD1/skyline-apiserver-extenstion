@@ -1,3 +1,4 @@
+# v1 API의 모든 라우터를 통합하여 API 엔드포인트를 구성하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +25,8 @@ from skyline_apiserver.api.v1 import (
     prometheus,
     setting,
     user,
+    limits,
+    performance,
 )
 
 api_router = APIRouter()
@@ -36,3 +39,5 @@ api_router.include_router(setting.router, tags=["Setting"])
 api_router.include_router(user.router, tags=["User"])
 api_router.include_router(portforward.router, tags=["Network"])
 api_router.include_router(instance.router, tags=["Instance"])
+api_router.include_router(limits.router, tags=["Limits"])
+api_router.include_router(performance.router, tags=["Performance"])

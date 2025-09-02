@@ -1,3 +1,4 @@
+# 로그인 및 인증 관련 데이터 스키마(Credential, Profile 등)를 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

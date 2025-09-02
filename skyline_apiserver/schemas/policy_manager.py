@@ -1,3 +1,4 @@
+# 정책 관리자와 관련된 데이터 스키마를 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

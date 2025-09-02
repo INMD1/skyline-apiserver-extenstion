@@ -1,3 +1,4 @@
+# 데이터베이스 연결 설정 및 세션 관리를 처리하는 핵심 로직을 담고 있는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

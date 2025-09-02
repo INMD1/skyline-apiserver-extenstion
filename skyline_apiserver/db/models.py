@@ -1,3 +1,4 @@
+# 애플리케이션의 데이터베이스 스키마(테이블)를 SQLAlchemy 모델로 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

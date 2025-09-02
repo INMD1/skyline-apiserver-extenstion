@@ -1,3 +1,4 @@
+# 사용자 및 프로젝트 ID와 같은 요청별 컨텍스트를 처리하기 위한 RequestContext를 정의하는 파일입니다.
 # Copyright 2025 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,3 +1,4 @@
+# 여러 서비스 모듈로부터 정책 규칙을 동적으로 찾아 로드하는 기능을 관리하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

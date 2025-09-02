@@ -1,3 +1,4 @@
+# 공통적으로 사용되는 메시지 및 오류 스키마를 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

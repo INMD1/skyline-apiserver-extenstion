@@ -1,3 +1,4 @@
+# pbr을 사용하여 애플리케이션의 버전 정보를 관리하는 파일입니다.
 # Copyright 2022 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,3 +1,4 @@
+# 샘플 skyline.yaml 설정 파일을 생성하는 커맨드 라인 도구입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

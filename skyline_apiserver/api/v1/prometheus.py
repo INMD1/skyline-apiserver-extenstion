@@ -1,3 +1,4 @@
+# Prometheus 쿼리를 위한 API 엔드포인트를 제공하는 파일입니다.
 # Copyright 2022 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -113,7 +114,7 @@ def prometheus_query(
     query: str = Query(None, description="The query expression of prometheus to filter."),
     time: str = Query(None, description="The time to filter."),
     timeout: str = Query(None, description="The timeout to filter."),
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.PrometheusQueryResponse:
     kwargs = {}
     if query is not None:
@@ -160,7 +161,7 @@ def prometheus_query_range(
     end: str = Query(None, description="The end time to filter."),
     step: str = Query(None, description="The step to filter."),
     timeout: str = Query(None, description="The timeout to filter."),
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.PrometheusQueryRangeResponse:
     kwargs = {}
     if query is not None:

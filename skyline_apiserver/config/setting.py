@@ -1,3 +1,4 @@
+# API를 통해 동적으로 관리될 수 있는 설정 항목들을 정의하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,3 +1,4 @@
+# 엔드포인트 및 프로젝트 정보 조회 등 시스템 수준의 OpenStack 클라이언트 기능을 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

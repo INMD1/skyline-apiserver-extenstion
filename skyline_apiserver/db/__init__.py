@@ -1,3 +1,4 @@
+# 데이터베이스 API 및 설정 함수를 초기화하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

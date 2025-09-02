@@ -1,3 +1,4 @@
+# OpenStack API 리소스(서버, 볼륨, 포트 등)를 감싸는 래퍼 클래스를 정의하여 데이터 접근을 단순화하고 일관된 인터페이스를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

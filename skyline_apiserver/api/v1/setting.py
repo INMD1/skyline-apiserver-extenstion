@@ -1,3 +1,4 @@
+# 시스템 전반의 설정을 조회, 업데이트, 초기화하는 API 엔드포인트를 제공하는 파일입니다.
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,7 +52,7 @@ def assert_setting_key_exist(key: str):
 )
 def show_setting(
     key: str,
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.Setting:
     assert_setting_key_exist(key)
     value = getattr(CONF.setting, key)
@@ -83,7 +84,7 @@ def show_setting(
 )
 def update_setting(
     setting: schemas.UpdateSetting,
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.Setting:
     assert_system_admin(profile=profile, exception="Not allowed to update settings.")
     assert_setting_key_exist(setting.key)
@@ -110,7 +111,7 @@ def update_setting(
     response_description="OK",
 )
 def list_settings(
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.Settings:
     settings = {
         k: schemas.Setting(
@@ -143,7 +144,7 @@ def list_settings(
 )
 def reset_setting(
     key: str,
-    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ) -> schemas.Setting:
     assert_system_admin(profile, exception="Not allowed to reset settings.")
     assert_setting_key_exist(key)
