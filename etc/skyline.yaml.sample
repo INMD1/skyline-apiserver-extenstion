@@ -69,6 +69,11 @@ openstack:
   #권한이 할당된 계정을 넣어주세요!
   system_user_name: skyline
   system_user_password: ''
+  # 기존 학생 (Menber)들 초기 할당
+  nova_quota_instances: 10
+  nova_quota_cores: 4
+  nova_quota_ram: 6144
+  cinder_quota_gigabytes: 100
 setting:
   base_settings:
   - flavor_families

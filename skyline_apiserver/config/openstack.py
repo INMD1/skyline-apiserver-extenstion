@@ -235,6 +235,34 @@ port_forwarding_limit = Opt(
     default=10,
 )
 
+nova_quota_instances = Opt(
+    name="nova_quota_instances",
+    description="Quota of instances for new projects.",
+    schema=StrictInt,
+    default=10,
+)
+
+nova_quota_cores = Opt(
+    name="nova_quota_cores",
+    description="Quota of cores for new projects.",
+    schema=StrictInt,
+    default=4,
+)
+
+nova_quota_ram = Opt(
+    name="nova_quota_ram",
+    description="Quota of ram for new projects.",
+    schema=StrictInt,
+    default=6144,
+)
+
+cinder_quota_gigabytes = Opt(
+    name="cinder_quota_gigabytes",
+    description="Quota of gigabytes for new projects.",
+    schema=StrictInt,
+    default=100,
+)
+
 GROUP_NAME = __name__.split(".")[-1]
 ALL_OPTS = (
     enforce_new_defaults,
@@ -262,6 +290,10 @@ ALL_OPTS = (
     ssh_floating_ip_id,
     shared_floating_ip_project_id,
     port_forwarding_limit,
+    nova_quota_instances,
+    nova_quota_cores,
+    nova_quota_ram,
+    cinder_quota_gigabytes,
 )
 
 __all__ = ("GROUP_NAME", "ALL_OPTS")

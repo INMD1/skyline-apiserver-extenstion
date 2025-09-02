@@ -25,6 +25,7 @@ from novaclient.exceptions import BadRequest, Forbidden
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
+from skyline_apiserver.config import CONF
 
 
 def list_servers(
@@ -96,6 +97,7 @@ def list_services(
             detail=str(e),
         )
 
+
 def create_instance_with_network(
     session: Session,
     profile: schemas.Profile,
@@ -116,7 +118,10 @@ def create_instance_with_network(
     # TODO: Wait for server to be active
     return server
 
-def get_server_internal_ip(session: Session, profile: schemas.Profile, server_id: str) -> str:
+
+def get_server_internal_ip(
+    session: Session, profile: schemas.Profile, server_id: str
+) -> str:
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.get(server_id)
     for network in server.addresses:
@@ -125,7 +130,10 @@ def get_server_internal_ip(session: Session, profile: schemas.Profile, server_id
                 return ip["addr"]
     raise Exception(f"No internal IP found for server {server_id}")
 
-def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None):
+
+def get_quotas(
+    session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None
+):
     try:
         nc = utils.nova_client(
             region=profile.region,
@@ -139,16 +147,33 @@ def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Op
             detail=str(e),
         )
 
-def get_console_url(session: Session, profile: schemas.Profile, server_id: str, console_type: str):
+
+def update_quotas(session: Session, project_id: str, **kwargs: Any) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=CONF.openstack.default_region,
+            session=session,
+        )
+        return nc.quotas.update(project_id, **kwargs)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def get_console_url(
+    session: Session, profile: schemas.Profile, server_id: str, console_type: str
+):
     nc = utils.nova_client(session=session, region=profile.region)
-    if console_type == 'novnc':
-        console = nc.servers.get_vnc_console(server_id, 'novnc')
-    elif console_type == 'spice-html5':
-        console = nc.servers.get_spice_console(server_id, 'spice-html5')
-    elif console_type == 'rdp-html5':
-        console = nc.servers.get_rdp_console(server_id, 'rdp-html5')
-    elif console_type == 'serial':
-        console = nc.servers.get_serial_console(server_id, 'serial')
+    if console_type == "novnc":
+        console = nc.servers.get_vnc_console(server_id, "novnc")
+    elif console_type == "spice-html5":
+        console = nc.servers.get_spice_console(server_id, "spice-html5")
+    elif console_type == "rdp-html5":
+        console = nc.servers.get_rdp_console(server_id, "rdp-html5")
+    elif console_type == "serial":
+        console = nc.servers.get_serial_console(server_id, "serial")
     else:
         raise HTTPException(status_code=400, detail="Unsupported console type")
-    return console['console']
+    return console["console"]

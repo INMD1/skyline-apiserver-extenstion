@@ -93,7 +93,9 @@ def get_setting(key: str) -> Any:
 @check_db_connected
 def update_setting(key: str, value: Any) -> Any:
     get_query = (
-        select(Settings.c.key, Settings.c.value).where(Settings.c.key == key).with_for_update()
+        select(Settings.c.key, Settings.c.value)
+        .where(Settings.c.key == key)
+        .with_for_update()
     )
     db = DB.get()
     with db.transaction():
@@ -119,9 +121,7 @@ def delete_setting(key: str) -> Any:
 
 @check_db_connected
 def create_user_details(user_id: str, student_id: str) -> Any:
-    query = insert(UserDetails).values(
-        user_id=user_id, student_id=student_id
-    )
+    query = insert(UserDetails).values(user_id=user_id, student_id=student_id)
     db = DB.get()
     with db.transaction():
         result = db.execute(query)
@@ -134,4 +134,13 @@ def get_user_details(user_id: str) -> Any:
     db = DB.get()
     with db.transaction():
         result = db.fetch_one(query)
+    return result
+
+
+@check_db_connected
+def delete_user_details(user_id: str) -> Any:
+    query = delete(UserDetails).where(UserDetails.c.user_id == user_id)
+    db = DB.get()
+    with db.transaction():
+        result = db.execute(query)
     return result

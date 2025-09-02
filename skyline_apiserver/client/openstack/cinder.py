@@ -25,6 +25,7 @@ from keystoneauth1.session import Session
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
+from skyline_apiserver.config import CONF
 
 
 def list_volumes(
@@ -112,7 +113,10 @@ def get_volume_snapshot(
     except NotFound as e:
         raise e
 
-def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None):
+
+def get_quotas(
+    session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None
+):
     try:
         cc = utils.cinder_client(
             region=profile.region,
@@ -120,6 +124,20 @@ def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Op
             global_request_id=global_request_id,
         )
         return cc.quotas.get(profile.project.id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def update_quotas(session: Session, project_id: str, **kwargs: Any) -> Any:
+    try:
+        cc = utils.cinder_client(
+            region=CONF.openstack.default_region,
+            session=session,
+        )
+        return cc.quotas.update(project_id, **kwargs)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

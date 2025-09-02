@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import httpx
 from fastapi import status
 from fastapi.exceptions import HTTPException
 from keystoneauth1.exceptions.http import Unauthorized
@@ -24,11 +25,39 @@ from keystoneauth1.session import Session
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
-
-## 개인 추가
-import httpx
+from skyline_apiserver.client.openstack import cinder, nova
 from skyline_apiserver.config import CONF
 from skyline_apiserver.schemas.user import SignupRequest
+
+
+async def _delete_project(project_id: str):
+    system_session = utils.get_system_session()
+    auth_token = system_session.get_token()
+    headers = {"X-Auth-Token": auth_token}
+    keystone_url = CONF.openstack.keystone_url
+
+    async with httpx.AsyncClient(verify=CONF.default.cafile or False) as client:
+        delete_resp = await client.delete(
+            f"{keystone_url}/v3/projects/{project_id}", headers=headers
+        )
+        if delete_resp.status_code != 204:
+            # TODO: Log this failure
+            pass
+
+
+async def _delete_user(user_id: str):
+    system_session = utils.get_system_session()
+    auth_token = system_session.get_token()
+    headers = {"X-Auth-Token": auth_token}
+    keystone_url = CONF.openstack.keystone_url
+
+    async with httpx.AsyncClient(verify=CONF.default.cafile or False) as client:
+        delete_resp = await client.delete(
+            f"{keystone_url}/v3/users/{user_id}", headers=headers
+        )
+        if delete_resp.status_code != 204:
+            # TODO: Log this failure
+            pass
 
 
 async def create_user(user: SignupRequest):
@@ -37,72 +66,117 @@ async def create_user(user: SignupRequest):
     headers = {"X-Auth-Token": auth_token, "Content-Type": "application/json"}
     keystone_url = CONF.openstack.keystone_url
 
+    new_project_id = None
+    new_user_id = None
+
     async with httpx.AsyncClient(verify=CONF.default.cafile or False) as client:
-        # 1. Create a new project for the user
-        project_payload = {
-            "project": {
-                "name": f"{user.username}-project",
-                "description": f"Project for {user.username}",
-                "domain_id": "default",
-                "enabled": True,
-            }
-        }
-        project_resp = await client.post(
-            f"{keystone_url}/v3/projects", json=project_payload, headers=headers
-        )
-        if project_resp.status_code != 201:
-            return False, f"Failed to create project: {project_resp.text}"
-        project_data = project_resp.json()
-        new_project_id = project_data["project"]["id"]
-
-        # 2. Create the new user, assigning them to the new project
-        user_payload = {
-            "user": {
-                "name": user.username,
-                "description": user.name,
-                "domain_id": "default",
-                "password": user.password,
-                "default_project_id": new_project_id,
-                "email": user.email,
-            }
-        }
-        user_resp = await client.post(f"{keystone_url}/v3/users", json=user_payload, headers=headers)
-        if user_resp.status_code != 201:
-            # TODO: Rollback project creation
-            return False, f"Failed to create user: {user_resp.text}"
-        user_data = user_resp.json()
-        new_user_id = user_data["user"]["id"]
-
-        # Store student_id in Skyline DB
-        from skyline_apiserver.db import api as db_api
         try:
-            db_api.create_user_details(user_id=new_user_id, student_id=user.student_id)
+            # 1. Create a new project for the user
+            project_payload = {
+                "project": {
+                    "name": f"{user.username}-project",
+                    "description": f"Project for {user.username}",
+                    "domain_id": "default",
+                    "enabled": True,
+                }
+            }
+            project_resp = await client.post(
+                f"{keystone_url}/v3/projects", json=project_payload, headers=headers
+            )
+            if project_resp.status_code != 201:
+                return False, f"Failed to create project: {project_resp.text}"
+            project_data = project_resp.json()
+            new_project_id = project_data["project"]["id"]
+
+            # Set quotas for the new project
+            try:
+                nova.update_quotas(
+                    session=system_session,
+                    project_id=new_project_id,
+                    instances=CONF.openstack.nova_quota_instances,
+                    cores=CONF.openstack.nova_quota_cores,
+                    ram=CONF.openstack.nova_quota_ram,
+                )
+                cinder.update_quotas(
+                    session=system_session,
+                    project_id=new_project_id,
+                    gigabytes=CONF.openstack.cinder_quota_gigabytes,
+                )
+            except Exception as e:
+                # Rollback project creation
+                await _delete_project(new_project_id)
+                return False, f"Failed to set quotas: {e}"
+
+            # 2. Create the new user, assigning them to the new project
+            user_payload = {
+                "user": {
+                    "name": user.username,
+                    "description": user.name,
+                    "domain_id": "default",
+                    "password": user.password,
+                    "default_project_id": new_project_id,
+                    "email": user.email,
+                }
+            }
+            user_resp = await client.post(
+                f"{keystone_url}/v3/users", json=user_payload, headers=headers
+            )
+            if user_resp.status_code != 201:
+                raise Exception(f"Failed to create user: {user_resp.text}")
+            user_data = user_resp.json()
+            new_user_id = user_data["user"]["id"]
+
+            # Store student_id in Skyline DB
+            from skyline_apiserver.db import api as db_api
+
+            try:
+                db_api.create_user_details(
+                    user_id=new_user_id, student_id=user.student_id
+                )
+            except Exception as e:
+                raise Exception(f"Failed to save user details: {e}")
+
+            # 3. Assign 'member' role to the new user on their new project
+            member_role_id = CONF.openstack.member_role_id
+            if not member_role_id:
+                raise Exception("Member role ID is not configured.")
+            member_role_url = (
+                f"{keystone_url}/v3/projects/{new_project_id}/users/"
+                f"{new_user_id}/roles/{member_role_id}"
+            )
+            member_role_resp = await client.put(member_role_url, headers=headers)
+            if member_role_resp.status_code != 204:
+                raise Exception(
+                    f"Failed to assign member role to user: {member_role_resp.text}"
+                )
+
+            # 4. Assign 'admin' role to the admin user on the new project
+            admin_user_id = CONF.openstack.admin_user_id
+            admin_role_id = CONF.openstack.admin_role_id
+            if not admin_user_id or not admin_role_id:
+                raise Exception("Admin user ID or admin role ID is not configured.")
+            admin_role_url = (
+                f"{keystone_url}/v3/projects/{new_project_id}/users/"
+                f"{admin_user_id}/roles/{admin_role_id}"
+            )
+            admin_role_resp = await client.put(admin_role_url, headers=headers)
+            if admin_role_resp.status_code != 204:
+                raise Exception(
+                    f"Failed to assign admin role to admin user: {admin_role_resp.text}"
+                )
+
+            return True, "User, project, and roles created successfully."
+
         except Exception as e:
-            # TODO: Rollback user and project creation in Keystone
-            return False, f"Failed to save user details: {e}"
+            if new_user_id:
+                await _delete_user(new_user_id)
+                from skyline_apiserver.db import api as db_api
 
-        # 3. Assign 'member' role to the new user on their new project
-        member_role_id = CONF.openstack.member_role_id
-        if not member_role_id:
-            return False, "Member role ID is not configured."
-        member_role_url = (
-            f"{keystone_url}/v3/projects/{new_project_id}/users/{new_user_id}/roles/{member_role_id}"
-        )
-        member_role_resp = await client.put(member_role_url, headers=headers)
-        if member_role_resp.status_code != 204:
-            return False, f"Failed to assign member role to user: {member_role_resp.text}"
+                db_api.delete_user_details(user_id=new_user_id)
+            if new_project_id:
+                await _delete_project(new_project_id)
+            return False, str(e)
 
-        # 4. Assign 'admin' role to the admin user on the new project
-        admin_user_id = CONF.openstack.admin_user_id
-        admin_role_id = CONF.openstack.admin_role_id
-        if not admin_user_id or not admin_role_id:
-            return False, "Admin user ID or admin role ID is not configured."
-        admin_role_url = f"{keystone_url}/v3/projects/{new_project_id}/users/{admin_user_id}/roles/{admin_role_id}"
-        admin_role_resp = await client.put(admin_role_url, headers=headers)
-        if admin_role_resp.status_code != 204:
-            return False, f"Failed to assign admin role to admin user: {admin_role_resp.text}"
-
-        return True, "User, project, and roles created successfully."
 
 def list_projects(
     profile: schemas.Profile,
