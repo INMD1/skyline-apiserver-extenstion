@@ -75,6 +75,7 @@ async def validate_token(request: Request, call_next):
     # Skip authentication for login and static endpoints
     ignore_urls = [
         f"{constants.API_PREFIX}/login",
+        f"{constants.API_PREFIX}/signup",
         f"{constants.API_PREFIX}/websso",
         "/static",
         "/docs",

@@ -53,7 +53,7 @@ def create_instance(instance: InstanceCreate, profile: schemas.Profile = Depends
             floatingip_id=fip_id,
             internal_ip_address=internal_ip,
             internal_port=22,
-            external_port=22,  # Or find an available one
+            external_port=22, 
         )
 
         # The original code had a security group rule creation.

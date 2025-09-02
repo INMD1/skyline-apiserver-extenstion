@@ -31,11 +31,17 @@ from skyline_apiserver.config import setting
 
 
 # This function is used by the /portforward endpoint and should be kept.
-async def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profile):
+def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profile):
     try:
         session = utils.generate_session(profile)
         region = profile.region
         nc = utils.neutron_client(session=session, region=region)
+
+        # Check for conflicts
+        existing_pfs = nc.list_port_forwardings(floatingip_id=req.floating_ip_id).get("port_forwardings", [])
+        for pf in existing_pfs:
+            if pf['external_port'] == req.external_port:
+                return {"success": False, "error": f"External port {req.external_port} is already in use on this floating IP."}
 
         body = {
             "port_forwarding": {
@@ -45,7 +51,7 @@ async def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profi
                 "external_port": req.external_port,
             }
         }
-        pf = nc.create_port_forwarding(floatingip_id=req.floating_ip_id, body=body)
+        pf = nc.create_port_forwarding(floatingip_id=req.floating_ip_id, body=body)['port_forwarding']
 
         fip = nc.show_floatingip(req.floating_ip_id)
 
@@ -53,12 +59,12 @@ async def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profi
             "success": True,
             "port_forwarding": {
                 "floating_ip_address": fip["floatingip"]["floating_ip_address"],
-                "internal_ip_address": pf["port_forwarding"]["internal_ip_address"],
-                "internal_port": pf["port_forwarding"]["internal_port"],
-                "external_port": pf["port_forwarding"]["external_port"],
-                "protocol": pf["port_forwarding"]["protocol"],
+                "internal_ip_address": pf["internal_ip_address"],
+                "internal_port": pf["internal_port"],
+                "external_port": pf["external_port"],
+                "protocol": pf["protocol"],
                 "status": "ACTIVE",
-                "assigned_port": pf["port_forwarding"]["external_port"],
+                "assigned_port": pf["external_port"],
                 "public_ip": fip["floatingip"]["floating_ip_address"],
             },
         }

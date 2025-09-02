@@ -32,3 +32,11 @@ Settings = Table(
     Column("key", String(length=128), nullable=False, index=True, unique=True),
     Column("value", JSON, nullable=True),
 )
+
+UserDetails = Table(
+    "user_details",
+    METADATA,
+    Column("user_id", String(length=64), primary_key=True, nullable=False),
+    # DB쿼리가 바뀌만 이쪽도 수정해주세요.
+    Column("student_id", String(length=255), nullable=True),
+)

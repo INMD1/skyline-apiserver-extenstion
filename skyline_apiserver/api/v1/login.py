@@ -172,8 +172,8 @@ def login(
     request: Request,
     response: Response,
     credential: schemas.Credential,
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -272,8 +272,8 @@ def get_sso(request: Request) -> schemas.SSO:
 )
 def websso(
     token: str = Form(...),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -324,8 +324,8 @@ def websso(
 )
 def get_profile(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -347,8 +347,8 @@ def logout(
     response: Response,
     request: Request,
     payload: str = Depends(deps.getJWTPayload),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -381,8 +381,8 @@ def switch_project(
     project_id: str,
     request: Request,
     response: Response,
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),

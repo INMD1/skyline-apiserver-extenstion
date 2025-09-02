@@ -6,7 +6,7 @@ __pycache__/
 *.code-workspace
 
 sql_app.db
-
+skyline.yaml
 # C extensions
 *.so
 

@@ -60,8 +60,8 @@ STEP = constants.ID_UUID_RANGE_STEP
 )
 def list_servers(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -278,8 +278,8 @@ def list_servers(
 )
 def list_recycle_servers(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -491,8 +491,8 @@ def list_recycle_servers(
 )
 def list_volumes(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -665,8 +665,8 @@ def list_volumes(
 )
 def list_volume_snapshots(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -851,8 +851,8 @@ def list_volume_snapshots(
 )
 def list_ports(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),
@@ -1037,8 +1037,8 @@ def list_ports(
 )
 def compute_services(
     profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
-    x_openstack_request_id: str = Header(
-        "",
+    x_openstack_request_id: Optional[str] = Header(
+        None,
         alias=constants.INBOUND_HEADER,
         regex=constants.INBOUND_HEADER_REGEX,
     ),

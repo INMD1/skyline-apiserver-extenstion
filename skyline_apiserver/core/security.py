@@ -27,6 +27,7 @@ from skyline_apiserver.client import utils
 from skyline_apiserver.client.openstack.keystone import get_user
 from skyline_apiserver.client.utils import get_system_session
 from skyline_apiserver.config import CONF
+from skyline_apiserver.db import api as db_api
 
 
 def parse_access_token(token: str) -> (schemas.Payload):
@@ -60,12 +61,16 @@ def generate_profile(
         token_data = kc.tokens.get_token_data(token=keystone_token)
         user_id = token_data["token"]["user"]["id"]
         user_info = get_user(id=user_id, region=region, session=system_session)
+
+        user_details = db_api.get_user_details(user_id=user_id)
+        student_id = user_details.student_id if user_details else None
+
         token_data["token"]["user"] = {
             "id": user_info.id,
             "name": user_info.name,
             "domain": token_data["token"]["user"]["domain"],
             "email": getattr(user_info, "email", None),
-            "student_id": getattr(user_info, "student_id", None),
+            "student_id": student_id,
             "description": getattr(user_info, "description", None),
         }
     except Exception as e:
