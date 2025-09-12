@@ -177,3 +177,73 @@ def get_console_url(
     else:
         raise HTTPException(status_code=400, detail="Unsupported console type")
     return console["console"]
+
+
+def list_flavors(
+    session: Session,
+    region: str,
+    global_request_id: Optional[str] = None,
+    detailed: bool = True,
+) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.flavors.list(detailed=detailed)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def get_flavor(
+    session: Session,
+    region: str,
+    flavor_id: str,
+    global_request_id: Optional[str] = None,
+) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.flavors.get(flavor_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def list_keypairs(session: Session, region: str, global_request_id: Optional[str] = None) -> Any:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        return nc.keypairs.list()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+def get_keypair(session: Session, region: str, keypair_name: str, global_request_id: Optional[str] = None) -> Any:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        return nc.keypairs.get(keypair_name)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+def create_keypair(session: Session, region: str, name: str, public_key: Optional[str] = None, key_type: str = 'ssh', global_request_id: Optional[str] = None) -> Any:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        return nc.keypairs.create(name, public_key=public_key, key_type=key_type)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+def delete_keypair(session: Session, region: str, keypair_name: str, global_request_id: Optional[str] = None) -> None:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        nc.keypairs.delete(keypair_name)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+

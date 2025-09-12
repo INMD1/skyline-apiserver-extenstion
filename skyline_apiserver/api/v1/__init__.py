@@ -20,6 +20,8 @@ from skyline_apiserver.api.v1 import (
     extension,
     instance,
     image,
+    flavor,
+    keypair,
     login,
     policy,
     portforward,
@@ -41,5 +43,7 @@ api_router.include_router(user.router, tags=["User"])
 api_router.include_router(portforward.router, tags=["Network"])
 api_router.include_router(instance.router, tags=["Instance"])
 api_router.include_router(image.router, tags=["Image"])
+api_router.include_router(flavor.router, tags=["Flavor"])
+api_router.include_router(keypair.router, tags=["Keypair"])
 api_router.include_router(limits.router, tags=["Limits"])
 api_router.include_router(performance.router, tags=["Performance"])

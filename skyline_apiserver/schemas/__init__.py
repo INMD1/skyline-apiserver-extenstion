@@ -43,7 +43,9 @@ from .extension import (
     VolumesResponse,
     VolumeStatus,
 )
+from .flavor import Flavor, FlavorsResponse
 from .image import Image, ImagesResponse
+from .keypair import Keypair, KeypairDetail, KeypairsResponse, KeypairCreate
 from .login import SSO, Credential, Payload, Profile
 from .policy import Policies, PoliciesRules
 from .policy_manager import Operation, OperationsSchema, ScopeTypesSchema
