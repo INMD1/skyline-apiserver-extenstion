@@ -24,6 +24,7 @@ from starlette.responses import Response
 
 from skyline_apiserver import schemas
 from skyline_apiserver.core.security import generate_profile
+from skyline_apiserver.config import CONF
 
 
 def getJWTPayload(request: Request) -> Optional[str]:
@@ -68,7 +69,7 @@ def get_profile_from_header(
     try:
         profile = generate_profile(
             keystone_token=token,
-            region="RegionOne",
+            region=CONF.openstack.default_region,
         )
         return profile
     except Exception as e:

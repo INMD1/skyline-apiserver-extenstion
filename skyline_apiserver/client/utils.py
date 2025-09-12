@@ -121,12 +121,13 @@ def glance_client(
     global_request_id: Optional[str] = None,
     version: str = constants.GLANCE_API_VERSION,
 ) -> HTTPClient:
-    endpoint = get_endpoint(region, "image", session=session)
     client = GlanceClient(
         version=version,
         session=session,
-        endpoint=endpoint,
         global_request_id=global_request_id,
+        service_type='image',
+        interface=CONF.openstack.interface_type,
+        region_name=region,
     )
     return client
 
