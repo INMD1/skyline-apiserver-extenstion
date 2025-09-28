@@ -60,4 +60,5 @@ from .prometheus import (
 from .setting import Setting, Settings, UpdateSetting
 from .limits import LimitSummary
 from .performance import PerformanceData
-from .instance import Console
+from .instance import Console, Instance
+from .network import Network, NetworkList

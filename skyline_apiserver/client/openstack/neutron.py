@@ -155,12 +155,7 @@ def create_security_group_rule(
     return nc.create_security_group_rule(body)
 
 
-def list_networks(
-    profile: schemas.Profile,
-    session: Session,
-    global_request_id: str,
-    **kwargs: Any,
-) -> Any:
+def list_networks(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
     try:
         nc = utils.neutron_client(
             session=session,
@@ -168,11 +163,6 @@ def list_networks(
             global_request_id=global_request_id,
         )
         return nc.list_networks(**kwargs)
-    except Unauthorized as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

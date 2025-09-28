@@ -94,6 +94,25 @@ def list_volume_snapshots(
         )
 
 
+def get_volume(session: Session, profile: schemas.Profile, volume_id: str) -> Any:
+    try:
+        cc = utils.cinder_client(
+            region=profile.region,
+            session=session,
+        )
+        return cc.volumes.get(volume_id)
+    except NotFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 def get_volume_snapshot(
     session: Session,
     region: str,
@@ -138,6 +157,37 @@ def update_quotas(session: Session, project_id: str, **kwargs: Any) -> Any:
             session=session,
         )
         return cc.quotas.update(project_id, **kwargs)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def create_volume(
+    session: Session,
+    profile: schemas.Profile,
+    name: str,
+    size: int,
+    image_id: Optional[str] = None,
+    global_request_id: Optional[str] = None,
+) -> Any:
+    try:
+        cc = utils.cinder_client(
+            region=profile.region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return cc.volumes.create(
+            name=name,
+            size=size,
+            imageRef=image_id,
+        )
+    except Unauthorized as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

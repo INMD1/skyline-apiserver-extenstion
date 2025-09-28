@@ -18,7 +18,7 @@ def list_keypairs(profile: schemas.Profile = Depends(deps.get_profile_from_heade
 def get_keypair(keypair_name: str, profile: schemas.Profile = Depends(deps.get_profile_from_header)):
     session = utils.generate_session(profile)
     keypair = nova.get_keypair(session=session, region=profile.region, keypair_name=keypair_name)
-    return schemas.Keypair.model_validate(keypair.to_dict()['keypair'])
+    return schemas.Keypair.model_validate(keypair.to_dict())
 
 @router.post("/keypairs", response_model=schemas.KeypairDetail, status_code=status.HTTP_201_CREATED, summary="Create a Keypair")
 def create_keypair(keypair_in: schemas.KeypairCreate, profile: schemas.Profile = Depends(deps.get_profile_from_header)):
@@ -29,7 +29,7 @@ def create_keypair(keypair_in: schemas.KeypairCreate, profile: schemas.Profile =
         name=keypair_in.name, 
         public_key=keypair_in.public_key
     )
-    return schemas.KeypairDetail.model_validate(keypair.to_dict()['keypair'])
+    return schemas.KeypairDetail.model_validate(keypair.to_dict())
 
 @router.delete("/keypairs/{keypair_name}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a Keypair")
 def delete_keypair(keypair_name: str, profile: schemas.Profile = Depends(deps.get_profile_from_header)):

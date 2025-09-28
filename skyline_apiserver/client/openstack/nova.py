@@ -98,6 +98,26 @@ def list_services(
         )
 
 
+def create_instance_from_volume(
+    session: Session,
+    profile: schemas.Profile,
+    name: str,
+    volume_id: str,
+    flavor_id: str,
+    net_id: str,
+    key_name: str,
+):
+    nc = utils.nova_client(session=session, region=profile.region)
+    server = nc.servers.create(
+        name=name,
+        flavor=flavor_id,
+        nics=[{"net-id": net_id}],
+        key_name=key_name,
+        block_device_mapping={'vda': f'{volume_id}:::0'}
+    )
+    return server
+
+
 def create_instance_with_network(
     session: Session,
     profile: schemas.Profile,
@@ -119,16 +139,25 @@ def create_instance_with_network(
     return server
 
 
+import time
+
 def get_server_internal_ip(
     session: Session, profile: schemas.Profile, server_id: str
 ) -> str:
     nc = utils.nova_client(session=session, region=profile.region)
-    server = nc.servers.get(server_id)
-    for network in server.addresses:
-        for ip in server.addresses[network]:
-            if ip["OS-EXT-IPS:type"] == "fixed":
-                return ip["addr"]
+    for _ in range(10):  # Retry for 30 seconds (10 times * 3 seconds)
+        server = nc.servers.get(server_id)
+        for network in server.addresses:
+            for ip in server.addresses[network]:
+                if ip["OS-EXT-IPS:type"] == "fixed":
+                    return ip["addr"]
+        time.sleep(3)
     raise Exception(f"No internal IP found for server {server_id}")
+
+
+def get_server(session: Session, profile: schemas.Profile, server_id: str) -> Any:
+    nc = utils.nova_client(session=session, region=profile.region)
+    return nc.servers.get(server_id)
 
 
 def get_quotas(
