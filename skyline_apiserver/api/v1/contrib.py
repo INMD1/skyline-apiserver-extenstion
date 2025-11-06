@@ -1,4 +1,5 @@
 # Keystone 엔드포인트, 도메인, 리전 목록 조회 등과 같은 유틸리티성 API 엔드포인트를 제공하는 파일입니다.
+# V 원본 라이센스 (original license)
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

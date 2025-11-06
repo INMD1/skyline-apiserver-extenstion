@@ -1,4 +1,5 @@
 # 사용자 로그인, 로그아웃, 프로필 관리, 프로젝트 전환, SSO 등 인증 및 세션 관련 API 엔드포인트를 제공하는 파일입니다.
+# V 원본 라이센스 (original license)
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

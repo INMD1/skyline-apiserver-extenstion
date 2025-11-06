@@ -1,4 +1,5 @@
 # Nova(컴퓨트) API와 상호 작용하기 위한 클라이언트 함수들을 제공하는 파일입니다.
+# V 원본 라이센스 (original license)
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

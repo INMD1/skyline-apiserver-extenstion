@@ -1,4 +1,5 @@
 # 시스템 전반의 설정을 조회, 업데이트, 초기화하는 API 엔드포인트를 제공하는 파일입니다.
+# V 원본 라이센스 (original license)
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

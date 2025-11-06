@@ -1,4 +1,4 @@
-# 사용자 회원가입을 처리하는 API 엔드포인트를 제공하는 파일입니다.
+# 사용자가 활동한 기록을 저장합니다.
 # Copyright 2025 INMD1
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,15 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from fastapi import APIRouter, Depends, HTTPException
-from skyline_apiserver.schemas.user import SignupRequest
-from skyline_apiserver.client.openstack.keystone import create_user
+from __future__ import annotations
 
-router = APIRouter()
+from keystoneauth1.exceptions.http import Unauthorized
+from keystoneauth1.session import Session
+from skyline_apiserver.db import api as db_api
 
-@router.post("/signup", tags=["User"])
-async def signup(user: SignupRequest):
-    success, msg = await create_user(user)
-    if not success:
-        raise HTTPException(status_code=400, detail=msg)
-    return {"message": msg}
+def write_db_backed_token(
+ session: Session,
+ message: str,
+ status: str #success or failure 2개로 구분됨
+) -> Any:
+ 

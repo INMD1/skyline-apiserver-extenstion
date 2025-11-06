@@ -1,4 +1,5 @@
 # Keystone(ID) API와 상호 작용하기 위한 클라이언트 함수들을 제공하며, 사용자 생성과 같은 커스텀 기능도 포함합니다.
+# V 원본 라이센스 (original license)
 # Copyright 2021 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

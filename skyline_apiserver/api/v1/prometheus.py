@@ -1,4 +1,5 @@
 # Prometheus 쿼리를 위한 API 엔드포인트를 제공하는 파일입니다.
+# V 원본 라이센스 (original license)
 # Copyright 2022 99cloud
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

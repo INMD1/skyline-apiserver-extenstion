@@ -41,3 +41,13 @@ UserDetails = Table(
     # DB쿼리가 바뀌만 이쪽도 수정해주세요.
     Column("student_id", String(length=255), nullable=True),
 )
+
+
+UserActivity = Table(
+    "user_activity",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", String(length=64), nullable=False),
+    Column("action", String(length=255), nullable=False),
+    Column("timestamp", Integer, nullable=False),
+)
