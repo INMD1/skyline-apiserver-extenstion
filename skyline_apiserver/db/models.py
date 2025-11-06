@@ -48,6 +48,10 @@ UserActivity = Table(
     METADATA,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("user_id", String(length=64), nullable=False),
-    Column("action", String(length=255), nullable=False),
-    Column("timestamp", Integer, nullable=False),
+    Column("project_id", String(length=64), nullable=False),
+    Column("category", String(length=128), nullable=False),
+    Column("message", String(length=512), nullable=False),
+    Column("status", String(length=32), nullable=False),  # 'success' or
+    Column("token", String(length=256), nullable=False),
+    Column("timestamp", Integer, nullable=False)
 )

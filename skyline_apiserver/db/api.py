@@ -144,3 +144,38 @@ def delete_user_details(user_id: str) -> Any:
     with db.transaction():
         result = db.execute(query)
     return result
+
+@check_db_connected
+def create_activity_record(
+    user_id: str,
+    project_id: str,
+    category: str,
+    message: str,
+    status: str,
+    token: str
+) -> Any:
+    from .models import ActivityRecord
+
+    query = insert(ActivityRecord).values(
+        user_id=user_id,
+        project_id=project_id,
+        category=category,
+        message=message,
+        status=status,
+        token=token,
+        timestamp=int(time.time())
+    )
+    db = DB.get()
+    with db.transaction():
+        result = db.execute(query)
+    return result
+
+@check_db_connected
+def get_activity_records_by_user(user_id: str) -> Any:
+    from .models import ActivityRecord
+
+    query = select(ActivityRecord).where(ActivityRecord.c.user_id == user_id)
+    db = DB.get()
+    with db.transaction():
+        result = db.fetch_all(query)
+    return result
