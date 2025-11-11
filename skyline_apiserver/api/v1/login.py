@@ -34,6 +34,7 @@ from starlette.responses import Response
 from skyline_apiserver import schemas
 from skyline_apiserver.api import deps
 from skyline_apiserver.client import utils
+from skyline_apiserver.client.openstack import activity as activity_client
 from skyline_apiserver.client.openstack.keystone import get_token_data, get_user, revoke_token
 from skyline_apiserver.client.openstack.system import (
     get_endpoints,
@@ -216,6 +217,13 @@ def login(
             detail=str(e),
         )
     else:
+        session = generate_session(profile)
+        activity_client.create_activity(
+            session=session,
+            category="login",
+            message=f"User {profile.user.name} logged in successfully.",
+            status_result="success",
+        )
         response.set_cookie(CONF.default.session_name, profile.toJWTPayload())
         response.set_cookie(constants.TIME_EXPIRED_KEY, str(profile.exp))
         return profile
@@ -369,6 +377,12 @@ def logout(
             session = generate_session(profile)
             revoke_token(profile, session, x_openstack_request_id, token.keystone_token)
             db_api.revoke_token(profile.uuid, profile.exp)
+            activity_client.create_activity(
+                session=session,
+                category="logout",
+                message=f"User {profile.user.name} logged out successfully.",
+                status_result="success",
+            )
         except Exception as e:
             LOG.debug(str(e))
     elif body and body.keystone_token:

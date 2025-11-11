@@ -263,6 +263,13 @@ cinder_quota_gigabytes = Opt(
     default=100,
 )
 
+nova_default_image_for_volume_boot = Opt(
+    name="nova_default_image_for_volume_boot",
+    description="Default image ID to use when booting an instance from a volume. This is required by novaclient even when booting from volume.",
+    schema=StrictStr,
+    default="",
+)
+
 GROUP_NAME = __name__.split(".")[-1]
 ALL_OPTS = (
     enforce_new_defaults,
@@ -294,6 +301,7 @@ ALL_OPTS = (
     nova_quota_cores,
     nova_quota_ram,
     cinder_quota_gigabytes,
+    nova_default_image_for_volume_boot,
 )
 
 __all__ = ("GROUP_NAME", "ALL_OPTS")

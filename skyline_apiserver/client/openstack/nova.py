@@ -111,6 +111,7 @@ def create_instance_from_volume(
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
         name=name,
+        image=CONF.openstack.nova_default_image_for_volume_boot,
         flavor=flavor_id,
         nics=[{"net-id": net_id}],
         key_name=key_name,
@@ -198,15 +199,8 @@ def get_console_url(
     nc = utils.nova_client(session=session, region=profile.region)
     if console_type == "novnc":
         console = nc.servers.get_vnc_console(server_id, "novnc")
-    elif console_type == "spice-html5":
-        console = nc.servers.get_spice_console(server_id, "spice-html5")
-    elif console_type == "rdp-html5":
-        console = nc.servers.get_rdp_console(server_id, "rdp-html5")
-    elif console_type == "serial":
-        console = nc.servers.get_serial_console(server_id, "serial")
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported console type")
-    return console["console"]
+    return console
+
 
 
 def list_flavors(

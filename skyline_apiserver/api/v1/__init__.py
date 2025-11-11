@@ -31,6 +31,7 @@ from skyline_apiserver.api.v1 import (
     limits,
     performance,
     network,
+    activity,
 )
 
 api_router = APIRouter()
@@ -49,3 +50,4 @@ api_router.include_router(flavor.router, tags=["Flavor"])
 api_router.include_router(keypair.router, tags=["Keypair"])
 api_router.include_router(limits.router, tags=["Limits"])
 api_router.include_router(performance.router, tags=["Performance"])
+api_router.include_router(activity.router, tags=["Activity"])

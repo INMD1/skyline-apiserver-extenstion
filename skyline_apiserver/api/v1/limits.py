@@ -57,7 +57,7 @@ def get_limit_summary(
             pfs = neutron.get_port_forwarding_rules(session, profile.region, fip['id'])
             port_forwardings_used += len(pfs)
 
-        neutron_networks = neutron.list_networks(profile, session, global_request_id=x_openstack_request_id, tenant_id=profile.project.id)
+        neutron_networks = neutron.list_networks(session, profile, global_request_id=x_openstack_request_id, tenant_id=profile.project.id)
         networks_used = len(neutron_networks['networks'])
         neutron_ports = neutron.list_ports(session, profile.region, global_request_id=x_openstack_request_id, tenant_id=profile.project.id)
         ports_used = len(list(neutron_ports))

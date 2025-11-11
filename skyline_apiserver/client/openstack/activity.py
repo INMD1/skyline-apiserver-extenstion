@@ -15,15 +15,20 @@
 # limitations under the License.
 from __future__ import annotations
 
+from typing import Any
+
+from fastapi import HTTPException, status
 from keystoneauth1.exceptions.http import Unauthorized
 from keystoneauth1.session import Session
+
 from skyline_apiserver.db import api as db_api
 
-def write_db_backed_token(
- session: Session,
- category: str, # e.g., 'login', 'instance_create', 'volume_delete'
- message: str, # 활동에 대한 설명 메시지
- status: str #success or failure 2개로 구분됨
+
+def create_activity(
+    session: Session,
+    category: str,  # e.g., 'login', 'instance_create', 'volume_delete'
+    message: str,  # 활동에 대한 설명 메시지
+    status_result: str,  # success or failure 2개로 구분됨
 ) -> Any:
     try:
         token = session.get_token()
@@ -36,8 +41,8 @@ def write_db_backed_token(
             project_id=project_id,
             category=category,
             message=message,
-            status=status,
-            token=token
+            status=status_result,
+            token=token,
         )
         return activity_record
     except Unauthorized as e:
@@ -50,4 +55,15 @@ def write_db_backed_token(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+def get_activities_by_user(user_id: str) -> Any:
+    try:
+        return db_api.get_activity_records_by_user(user_id=user_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
  
