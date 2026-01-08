@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import random
+from typing import Any, Dict, List, Optional
 
 from fastapi import status
 from fastapi.exceptions import HTTPException
@@ -26,7 +27,8 @@ from neutronclient.v2_0.client import _GeneratorWithMeta
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
-    
+from skyline_apiserver.config import CONF
+
 import httpx
 from skyline_apiserver.schemas.portforward import PortForwardRequest
 from skyline_apiserver.config import setting
@@ -40,10 +42,15 @@ def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profile):
         nc = utils.neutron_client(session=session, region=region)
 
         # Check for conflicts
-        existing_pfs = nc.list_port_forwardings(floatingip_id=req.floating_ip_id).get("port_forwardings", [])
+        existing_pfs = nc.list_port_forwardings(floatingip_id=req.floating_ip_id).get(
+            "port_forwardings", []
+        )
         for pf in existing_pfs:
-            if pf['external_port'] == req.external_port:
-                return {"success": False, "error": f"External port {req.external_port} is already in use on this floating IP."}
+            if pf["external_port"] == req.external_port:
+                return {
+                    "success": False,
+                    "error": f"External port {req.external_port} is already in use on this floating IP.",
+                }
 
         body = {
             "port_forwarding": {
@@ -53,7 +60,9 @@ def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profile):
                 "external_port": req.external_port,
             }
         }
-        pf = nc.create_port_forwarding(floatingip_id=req.floating_ip_id, body=body)['port_forwarding']
+        pf = nc.create_port_forwarding(floatingip_id=req.floating_ip_id, body=body)[
+            "port_forwarding"
+        ]
 
         fip = nc.show_floatingip(req.floating_ip_id)
 
@@ -76,7 +85,9 @@ def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profile):
         return {"success": False, "error": str(e)}
 
 
-def get_floating_ip(session: Session, region: str, floating_ip_id: str) -> Dict[str, Any]:
+def get_floating_ip(
+    session: Session, region: str, floating_ip_id: str
+) -> Dict[str, Any]:
     nc = utils.neutron_client(session=session, region=region)
     return nc.show_floatingip(floating_ip_id)
 
@@ -101,6 +112,25 @@ def find_available_floating_ip(session: Session, region: str) -> Dict[str, Any]:
     return fips["floatingips"][0]
 
 
+def find_portforward_floating_ip(session: Session, region: str) -> Dict[str, Any]:
+    """
+    portforward_floating_ip_ids 배열에서 랜덤하게 Floating IP를 선택합니다.
+    배열이 비어있으면 기존 방식(shared project)을 사용합니다.
+    """
+    fip_ids = CONF.openstack.portforward_floating_ip_ids
+    if not fip_ids:
+        # 배열이 비어있으면 기존 방식 사용
+        return find_available_floating_ip(session, region)
+
+    # 랜덤하게 선택
+    selected_fip_id = random.choice(fip_ids)
+    nc = utils.neutron_client(session=session, region=region)
+    try:
+        return nc.show_floatingip(selected_fip_id)["floatingip"]
+    except Exception as e:
+        raise Exception(f"Failed to get floating IP {selected_fip_id}: {str(e)}")
+
+
 def create_port_forwarding_rule(
     session: Session,
     region: str,
@@ -119,17 +149,55 @@ def create_port_forwarding_rule(
             "external_port": external_port,
         }
     }
-    return nc.create_port_forwarding(floatingip_id=floatingip_id, body=body)["port_forwarding"]
+    return nc.create_port_forwarding(floatingip_id=floatingip_id, body=body)[
+        "port_forwarding"
+    ]
 
 
-def delete_port_forwarding_rule(session: Session, region: str, floatingip_id: str, pf_id: str):
+def delete_port_forwarding_rule(
+    session: Session, region: str, floatingip_id: str, pf_id: str
+):
     nc = utils.neutron_client(session=session, region=region)
     nc.delete_port_forwarding(floatingip_id=floatingip_id, port_forwarding_id=pf_id)
 
 
-def get_port_forwarding_rules(session: Session, region: str, floatingip_id: str) -> list:
+def get_port_forwarding_rules(
+    session: Session, region: str, floatingip_id: str
+) -> list:
     nc = utils.neutron_client(session=session, region=region)
-    return nc.list_port_forwardings(floatingip_id=floatingip_id).get("port_forwardings", [])
+    return nc.list_port_forwardings(floatingip_id=floatingip_id).get(
+        "port_forwardings", []
+    )
+
+
+def get_port_forwardings_by_internal_ip(
+    session: Session, region: str, internal_ip: str
+) -> List[Dict[str, Any]]:
+    """
+    특정 Internal IP (VM)에 연결된 모든 포트포워딩 규칙을 조회합니다.
+    """
+    nc = utils.neutron_client(session=session, region=region)
+    all_fips = nc.list_floatingips().get("floatingips", [])
+
+    result = []
+    for fip in all_fips:
+        pfs = nc.list_port_forwardings(floatingip_id=fip["id"]).get(
+            "port_forwardings", []
+        )
+        for pf in pfs:
+            if pf.get("internal_ip_address") == internal_ip:
+                result.append(
+                    {
+                        "id": pf["id"],
+                        "floating_ip_id": fip["id"],
+                        "floating_ip_address": fip["floating_ip_address"],
+                        "internal_ip_address": pf["internal_ip_address"],
+                        "internal_port": pf["internal_port"],
+                        "external_port": pf["external_port"],
+                        "protocol": pf["protocol"],
+                    }
+                )
+    return result
 
 
 def create_security_group_rule(
@@ -156,7 +224,12 @@ def create_security_group_rule(
     return nc.create_security_group_rule(body)
 
 
-def list_networks(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+def list_networks(
+    session: Session,
+    profile: schemas.Profile,
+    global_request_id: Optional[str] = None,
+    **kwargs,
+):
     try:
         nc = utils.neutron_client(
             session=session,
@@ -196,21 +269,30 @@ def list_ports(
             detail=str(e),
         )
 
-def get_quotas(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None):
+
+def get_quotas(
+    session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None
+):
     try:
         nc = utils.neutron_client(
             session=session,
             region=profile.region,
             global_request_id=global_request_id,
         )
-        return nc.show_quota(profile.project.id)['quota']
+        return nc.show_quota(profile.project.id)["quota"]
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
 
-def list_routers(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+
+def list_routers(
+    session: Session,
+    profile: schemas.Profile,
+    global_request_id: Optional[str] = None,
+    **kwargs,
+):
     try:
         nc = utils.neutron_client(
             session=session,
@@ -224,7 +306,13 @@ def list_routers(session: Session, profile: schemas.Profile, global_request_id: 
             detail=str(e),
         )
 
-def list_subnets(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+
+def list_subnets(
+    session: Session,
+    profile: schemas.Profile,
+    global_request_id: Optional[str] = None,
+    **kwargs,
+):
     try:
         nc = utils.neutron_client(
             session=session,
@@ -238,7 +326,13 @@ def list_subnets(session: Session, profile: schemas.Profile, global_request_id: 
             detail=str(e),
         )
 
-def list_security_groups(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+
+def list_security_groups(
+    session: Session,
+    profile: schemas.Profile,
+    global_request_id: Optional[str] = None,
+    **kwargs,
+):
     try:
         nc = utils.neutron_client(
             session=session,
@@ -252,7 +346,13 @@ def list_security_groups(session: Session, profile: schemas.Profile, global_requ
             detail=str(e),
         )
 
-def list_floatingips(session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None, **kwargs):
+
+def list_floatingips(
+    session: Session,
+    profile: schemas.Profile,
+    global_request_id: Optional[str] = None,
+    **kwargs,
+):
     try:
         nc = utils.neutron_client(
             session=session,

@@ -60,6 +60,7 @@ openstack:
     sharev2: manilav2
   shared_floating_ip_project_id: ''
   ssh_floating_ip_id: ''
+  portforward_floating_ip_ids: []
   sso_enabled: false
   sso_protocols:
   - openid

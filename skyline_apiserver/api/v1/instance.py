@@ -11,6 +11,7 @@ import random
 import time
 import uuid
 
+
 class PortForwardingRule(BaseModel):
     internal_port: int
     external_port: int
@@ -25,7 +26,6 @@ class InstanceCreate(BaseModel):
     network_id: str
     volume_size: Optional[int] = None
     additional_ports: Optional[List[PortForwardingRule]] = None
-
 
 
 class PortForwardingAdd(BaseModel):
@@ -46,7 +46,12 @@ router = APIRouter()
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 
-def setup_instance_networking(server_id: str, profile: schemas.Profile, additional_ports: Optional[List[PortForwardingRule]]):
+
+def setup_instance_networking(
+    server_id: str,
+    profile: schemas.Profile,
+    additional_ports: Optional[List[PortForwardingRule]],
+):
     session = utils.generate_session(profile)
     try:
         internal_ip = nova.get_server_internal_ip(session, profile, server_id)
@@ -59,11 +64,11 @@ def setup_instance_networking(server_id: str, profile: schemas.Profile, addition
             floatingip_id=ssh_fip_id,
             internal_ip_address=internal_ip,
             internal_port=22,
-            external_port=random.randrange(1,600),
+            external_port=random.randrange(1, 600),
         )
 
         if additional_ports:
-            fip = neutron.find_available_floating_ip(session, profile.region)
+            fip = neutron.find_portforward_floating_ip(session, profile.region)
             fip_id = fip["id"]
             for port in additional_ports:
                 neutron.create_port_forwarding_rule(
@@ -79,11 +84,12 @@ def setup_instance_networking(server_id: str, profile: schemas.Profile, addition
         # You might want to log this error or update the server status to ERROR
         print(f"Failed to setup networking for server {server_id}: {e}")
 
+
 @router.post("/instances", status_code=status.HTTP_202_ACCEPTED)
 def create_instance(
     instance: InstanceCreate,
     background_tasks: BackgroundTasks,
-    profile: schemas.Profile = Depends(deps.get_profile_from_header)
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
     session = utils.generate_session(profile)
 
@@ -93,11 +99,7 @@ def create_instance(
 
     # 실제 생성 로직은 백그라운드 태스크로 돌림
     background_tasks.add_task(
-        _provision_instance,
-        session,
-        profile,
-        instance,
-        request_id
+        _provision_instance, session, profile, instance, request_id
     )
 
     # 202 Accepted 와 요청 ID 반환
@@ -136,7 +138,9 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
                 net_id=instance.network_id,
                 key_name=instance.key_name,
             )
-            print(f"[{request_id}] Created instance {server.id} from volume {volume.id}")
+            print(
+                f"[{request_id}] Created instance {server.id} from volume {volume.id}"
+            )
         else:
             if not instance.image_id:
                 raise ValueError("Image ID required when not booting from a volume.")
@@ -162,7 +166,6 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
         print(f"[{request_id}] Failed: {e}")
 
 
-
 from skyline_apiserver.config import CONF
 
 
@@ -182,21 +185,29 @@ def get_instance(
 
 
 @router.post("/port_forwardings")
-def add_port_forwarding(pf_request: PortForwardingAdd, profile: schemas.Profile = Depends(deps.get_profile_from_header)):
+def add_port_forwarding(
+    pf_request: PortForwardingAdd,
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
+):
     session = utils.generate_session(profile)
     try:
-        all_fips = neutron.list_floatingips(session, profile, tenant_id=profile.project.id)['floatingips']
+        all_fips = neutron.list_floatingips(
+            session, profile, tenant_id=profile.project.id
+        )["floatingips"]
         port_forwardings_used = 0
         for fip_item in all_fips:
-            pfs = neutron.get_port_forwarding_rules(session, profile.region, fip_item['id'])
+            pfs = neutron.get_port_forwarding_rules(
+                session, profile.region, fip_item["id"]
+            )
             port_forwardings_used += len(pfs)
 
         if port_forwardings_used >= CONF.openstack.port_forwarding_limit:
             raise HTTPException(
-                status_code=400, detail="Maximum number of port forwardings for the project has been reached."
+                status_code=400,
+                detail="Maximum number of port forwardings for the project has been reached.",
             )
 
-        fip = neutron.find_available_floating_ip(session, profile.region)
+        fip = neutron.find_portforward_floating_ip(session, profile.region)
         fip_id = fip["id"]
 
         pf = neutron.create_port_forwarding_rule(
@@ -208,13 +219,21 @@ def add_port_forwarding(pf_request: PortForwardingAdd, profile: schemas.Profile 
             external_port=pf_request.external_port,  # Can be None
             protocol=pf_request.protocol,
         )
-        return {"message": "Port forwarding created successfully", "port_forwarding": pf}
+        return {
+            "message": "Port forwarding created successfully",
+            "port_forwarding": pf,
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create port forwarding: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create port forwarding: {e}"
+        )
 
 
 @router.delete("/port_forwardings", status_code=status.HTTP_204_NO_CONTENT)
-def delete_port_forwarding(pf_delete: PortForwardingDelete, profile: schemas.Profile = Depends(deps.get_profile_from_header)):
+def delete_port_forwarding(
+    pf_delete: PortForwardingDelete,
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
+):
     session = utils.generate_session(profile)
     try:
         neutron.delete_port_forwarding_rule(
@@ -225,20 +244,56 @@ def delete_port_forwarding(pf_delete: PortForwardingDelete, profile: schemas.Pro
         )
         return
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete port forwarding: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete port forwarding: {e}"
+        )
+
+
+@router.get("/instances/{instance_id}/port_forwardings")
+def list_instance_port_forwardings(
+    instance_id: str, profile: schemas.Profile = Depends(deps.get_profile_from_header)
+):
+    """
+    특정 VM의 모든 포트포워딩 규칙을 조회합니다.
+    """
+    session = utils.generate_session(profile)
+    try:
+        # VM의 internal IP 가져오기
+        internal_ip = nova.get_server_internal_ip(session, profile, instance_id)
+
+        # 해당 IP의 모든 포트포워딩 규칙 조회
+        pfs = neutron.get_port_forwardings_by_internal_ip(
+            session, profile.region, internal_ip
+        )
+
+        return {
+            "instance_id": instance_id,
+            "internal_ip": internal_ip,
+            "port_forwardings": pfs,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list port forwardings: {e}"
+        )
+
 
 class ConsoleRequest(BaseModel):
     console_type: str
+
 
 @router.post("/instances/{instance_id}/console")
 def get_instance_console(
     instance_id: str,
     console_request: ConsoleRequest,
-    profile: schemas.Profile = Depends(deps.get_profile_from_header)
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
     session = utils.generate_session(profile)
     try:
-        console_data = nova.get_console_url(session, profile, instance_id, console_request.console_type)
+        console_data = nova.get_console_url(
+            session, profile, instance_id, console_request.console_type
+        )
         return console_data
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )

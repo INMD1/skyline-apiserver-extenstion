@@ -221,6 +221,13 @@ ssh_floating_ip_id = Opt(
     default="",
 )
 
+portforward_floating_ip_ids = Opt(
+    name="portforward_floating_ip_ids",
+    description="List of floating IP IDs to be used for port forwarding (selected randomly).",
+    schema=List[StrictStr],
+    default=[],
+)
+
 shared_floating_ip_project_id = Opt(
     name="shared_floating_ip_project_id",
     description="The ID of the project for sourcing shared floating IPs.",
@@ -295,6 +302,7 @@ ALL_OPTS = (
     member_role_id,
     admin_user_id,
     ssh_floating_ip_id,
+    portforward_floating_ip_ids,
     shared_floating_ip_project_id,
     port_forwarding_limit,
     nova_quota_instances,
