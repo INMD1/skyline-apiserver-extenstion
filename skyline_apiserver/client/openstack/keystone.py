@@ -127,16 +127,6 @@ async def create_user(user: SignupRequest):
             user_data = user_resp.json()
             new_user_id = user_data["user"]["id"]
 
-            # Store student_id in Skyline DB
-            from skyline_apiserver.db import api as db_api
-
-            try:
-                db_api.create_user_details(
-                    user_id=new_user_id, student_id=user.student_id
-                )
-            except Exception as e:
-                raise Exception(f"Failed to save user details: {e}")
-
             # 3. Assign 'member' role to the new user on their new project
             member_role_id = CONF.openstack.member_role_id
             if not member_role_id:
@@ -171,9 +161,6 @@ async def create_user(user: SignupRequest):
         except Exception as e:
             if new_user_id:
                 await _delete_user(new_user_id)
-                from skyline_apiserver.db import api as db_api
-
-                db_api.delete_user_details(user_id=new_user_id)
             if new_project_id:
                 await _delete_project(new_project_id)
             return False, str(e)

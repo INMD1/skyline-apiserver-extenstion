@@ -58,6 +58,7 @@ def setup_instance_networking(
         ssh_fip = neutron.find_floating_ip_for_ssh(session, profile.region)
         ssh_fip_id = ssh_fip["id"]
 
+        # Auto-assign SSH port using random port allocation
         neutron.create_port_forwarding_rule(
             session=session,
             region=profile.region,
@@ -77,7 +78,7 @@ def setup_instance_networking(
                     floatingip_id=fip_id,
                     internal_ip_address=internal_ip,
                     internal_port=port.internal_port,
-                    external_port=port.external_port,
+                    external_port=port.external_port if port.external_port else None,  # Auto-assign if not provided
                     protocol=port.protocol,
                 )
     except Exception as e:
@@ -169,7 +170,7 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
 from skyline_apiserver.config import CONF
 
 
-@router.get("/instances/{instance_id}", response_model=schemas.Instance)
+@router.get("/instances/{instance_id}")
 def get_instance(
     instance_id: str,
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
@@ -177,11 +178,40 @@ def get_instance(
     session = utils.generate_session(profile)
     try:
         server = nova.get_server(session, profile, instance_id)
-        if server.image == "":
-            server.image = None
-        return server
+        
+        # Convert to dict for manipulation
+        server_dict = {
+            "id": server.id,
+            "name": server.name,
+            "status": server.status,
+            "created": server.created,
+            "updated": server.updated,
+            "flavor": getattr(server, "flavor", {}),
+            "image": server.image if server.image != "" else None,
+            "addresses": server.addresses,
+        }
+        
+        # Get internal IP
+        internal_ip = None
+        for network in server.addresses:
+            for ip in server.addresses[network]:
+                if ip.get("OS-EXT-IPS:type") == "fixed":
+                    internal_ip = ip["addr"]
+                    break
+            if internal_ip:
+                break
+        
+        # Add port forwarding information
+        if internal_ip:
+            port_forwardings = neutron.get_vm_port_forwardings(session, profile.region, internal_ip)
+            server_dict["port_forwardings"] = port_forwardings
+        else:
+            server_dict["port_forwardings"] = []
+        
+        return server_dict
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/port_forwardings")
@@ -216,7 +246,7 @@ def add_port_forwarding(
             floatingip_id=fip_id,
             internal_ip_address=pf_request.internal_ip,
             internal_port=pf_request.internal_port,
-            external_port=pf_request.external_port,  # Can be None
+            external_port=pf_request.external_port,  # Can be None for auto-assignment
             protocol=pf_request.protocol,
         )
         return {

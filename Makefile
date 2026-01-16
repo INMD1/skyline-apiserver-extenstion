@@ -1,4 +1,5 @@
 ROOT_DIR ?= $(shell git rev-parse --show-toplevel)
+export PYTHONPATH := $(ROOT_DIR)
 
 # Color
 no_color = \033[0m

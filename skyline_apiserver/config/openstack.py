@@ -302,7 +302,11 @@ ALL_OPTS = (
     member_role_id,
     admin_user_id,
     ssh_floating_ip_id,
+<<<<<<< HEAD
     portforward_floating_ip_ids,
+=======
+    port_forwarding_ip_ids,
+>>>>>>> 636ce39 (feat: Implement volume attach/detach/delete and intelligent port forwarding with sticky FIP allocation, while removing student ID fields.)
     shared_floating_ip_project_id,
     port_forwarding_limit,
     nova_quota_instances,

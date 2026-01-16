@@ -194,3 +194,29 @@ def create_volume(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+def delete_volume(session: Session, profile: schemas.Profile, volume_id: str) -> Any:
+    """Delete a volume. Raises exception if volume is attached."""
+    try:
+        cc = utils.cinder_client(
+            region=profile.region,
+            session=session,
+        )
+        volume = cc.volumes.get(volume_id)
+        if volume.status == "in-use":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete volume that is attached to an instance. Detach it first.",
+            )
+        cc.volumes.delete(volume_id)
+    except NotFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

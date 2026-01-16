@@ -271,3 +271,36 @@ def delete_keypair(session: Session, region: str, keypair_name: str, global_requ
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
+
+def attach_volume_to_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+    volume_id: str,
+) -> Any:
+    """Attach a volume to an instance."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        return nc.volumes.create_server_volume(server_id, volume_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to attach volume: {e}",
+        )
+
+
+def detach_volume_from_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+    volume_id: str,
+) -> None:
+    """Detach a volume from an instance."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.volumes.delete_server_volume(server_id, volume_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to detach volume: {e}",
+        )

@@ -30,8 +30,9 @@ from skyline_apiserver.client import utils
 from skyline_apiserver.config import CONF
 
 import httpx
+import random
 from skyline_apiserver.schemas.portforward import PortForwardRequest
-from skyline_apiserver.config import setting
+from skyline_apiserver.config import CONF, setting
 
 
 # This function is used by the /portforward endpoint and should be kept.
@@ -137,10 +138,15 @@ def create_port_forwarding_rule(
     floatingip_id: str,
     internal_ip_address: str,
     internal_port: int,
-    external_port: int,
+    external_port: int = None,
     protocol: str = "tcp",
 ) -> Dict[str, Any]:
     nc = utils.neutron_client(session=session, region=region)
+    
+    # Auto-assign port if not specified
+    if external_port is None:
+        external_port = find_random_available_port(session, region, floatingip_id)
+    
     body = {
         "port_forwarding": {
             "protocol": protocol,
@@ -198,6 +204,98 @@ def get_port_forwardings_by_internal_ip(
                     }
                 )
     return result
+
+
+def get_vm_port_forwardings(session: Session, region: str, internal_ip: str) -> list:
+    """Get all port forwarding rules for a VM by its internal IP address."""
+    nc = utils.neutron_client(session=session, region=region)
+    all_pfs = []
+    
+    # Get all floating IPs
+    fips = nc.list_floatingips().get("floatingips", [])
+    
+    for fip in fips:
+        pfs = nc.list_port_forwardings(floatingip_id=fip["id"]).get("port_forwardings", [])
+        for pf in pfs:
+            if pf.get("internal_ip_address") == internal_ip:
+                all_pfs.append({
+                    "id": pf["id"],
+                    "floating_ip_id": fip["id"],
+                    "floating_ip_address": fip["floating_ip_address"],
+                    "internal_ip_address": pf["internal_ip_address"],
+                    "internal_port": pf["internal_port"],
+                    "external_port": pf["external_port"],
+                    "protocol": pf["protocol"],
+                })
+    
+    return all_pfs
+
+
+def find_random_available_port(session: Session, region: str, floatingip_id: str, 
+                                 min_port: int = 10000, max_port: int = 60000) -> int:
+    """Find a random available port on a floating IP."""
+    nc = utils.neutron_client(session=session, region=region)
+    existing_pfs = nc.list_port_forwardings(floatingip_id=floatingip_id).get("port_forwardings", [])
+    used_ports = {pf["external_port"] for pf in existing_pfs}
+    
+    # Try to find an available port (max 100 attempts)
+    for _ in range(100):
+        port = random.randint(min_port, max_port)
+        if port not in used_ports:
+            return port
+    
+    raise Exception(f"Could not find available port on floating IP {floatingip_id}")
+
+
+def find_best_floating_ip_for_vm(session: Session, region: str, internal_ip: str) -> Dict[str, Any]:
+    """
+    Find the best floating IP for a VM using sticky allocation logic.
+    If the VM already has port forwarding rules, prefer the same IP.
+    Otherwise, choose from the configured port_forwarding_ip_ids pool.
+    """
+    nc = utils.neutron_client(session=session, region=region)
+    
+    # Check if VM already has port forwarding rules
+    existing_pfs = get_vm_port_forwardings(session, region, internal_ip)
+    
+    if existing_pfs:
+        # Use the same floating IP as the first existing rule
+        first_fip_id = existing_pfs[0]["floating_ip_id"]
+        try:
+            fip = nc.show_floatingip(first_fip_id)["floatingip"]
+            # Check if there's room for more port forwardings
+            pfs = nc.list_port_forwardings(floatingip_id=first_fip_id).get("port_forwardings", [])
+            # Arbitrary limit: if less than 50 port forwardings, use this IP
+            if len(pfs) < 50:
+                return fip
+        except Exception:
+            pass  # Fall through to select a new IP
+    
+    # No existing rules or existing IP is full, select from pool
+    port_forwarding_ip_ids = CONF.openstack.port_forwarding_ip_ids
+    if not port_forwarding_ip_ids:
+        raise Exception("No port forwarding IPs configured in port_forwarding_ip_ids.")
+    
+    # Find the IP with the least port forwardings
+    best_fip = None
+    min_pf_count = float('inf')
+    
+    for fip_id in port_forwarding_ip_ids:
+        try:
+            fip = nc.show_floatingip(fip_id)["floatingip"]
+            pfs = nc.list_port_forwardings(floatingip_id=fip_id).get("port_forwardings", [])
+            pf_count = len(pfs)
+            
+            if pf_count < min_pf_count:
+                min_pf_count = pf_count
+                best_fip = fip
+        except Exception as e:
+            continue  # Skip invalid floating IP IDs
+    
+    if not best_fip:
+        raise Exception("No available floating IPs found in port_forwarding_ip_ids pool.")
+    
+    return best_fip
 
 
 def create_security_group_rule(

@@ -24,7 +24,7 @@ from sqlalchemy import Insert, Update, delete, func, insert, select, update
 from skyline_apiserver.types import Fn
 
 from .base import DB, inject_db
-from .models import RevokedToken, Settings, UserDetails, UserActivity
+from .models import RevokedToken, Settings, UserActivity
 
 
 def check_db_connected(fn: Fn) -> Any:
@@ -118,32 +118,6 @@ def delete_setting(key: str) -> Any:
         result = db.execute(query)
     return result
 
-
-@check_db_connected
-def create_user_details(user_id: str, student_id: str) -> Any:
-    query = insert(UserDetails).values(user_id=user_id, student_id=student_id)
-    db = DB.get()
-    with db.transaction():
-        result = db.execute(query)
-    return result
-
-
-@check_db_connected
-def get_user_details(user_id: str) -> Any:
-    query = select(UserDetails).where(UserDetails.c.user_id == user_id)
-    db = DB.get()
-    with db.transaction():
-        result = db.fetch_one(query)
-    return result
-
-
-@check_db_connected
-def delete_user_details(user_id: str) -> Any:
-    query = delete(UserDetails).where(UserDetails.c.user_id == user_id)
-    db = DB.get()
-    with db.transaction():
-        result = db.execute(query)
-    return result
 
 @check_db_connected
 def create_activity_record(

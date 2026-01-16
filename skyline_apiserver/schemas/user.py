@@ -6,4 +6,3 @@ class SignupRequest(BaseModel):
     password: str
     name: str
     email: str
-    student_id: str
