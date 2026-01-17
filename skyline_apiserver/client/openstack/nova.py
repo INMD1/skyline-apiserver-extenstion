@@ -304,3 +304,84 @@ def detach_volume_from_server(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to detach volume: {e}",
         )
+
+
+def get_server_volumes(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> list:
+    """Get list of volumes attached to a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        return nc.volumes.get_server_volumes(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get server volumes: {e}",
+        )
+
+
+def delete_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> None:
+    """Delete a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.delete(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete server: {e}",
+        )
+
+
+def start_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> None:
+    """Start a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.start(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start server: {e}",
+        )
+
+
+def stop_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> None:
+    """Stop a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.stop(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop server: {e}",
+        )
+
+
+def reboot_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+    reboot_type: str = "SOFT",
+) -> None:
+    """Reboot a server. reboot_type can be 'SOFT' or 'HARD'."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.reboot(server_id, reboot_type)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reboot server: {e}",
+        )

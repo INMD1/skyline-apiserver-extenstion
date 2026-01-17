@@ -47,4 +47,15 @@ def portforward(
     result = neutron.create_port_forwarding(req, profile)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-    return result.get("port_forwarding")
+    
+    # floating_ip_id 제거, IP 주소만 포함
+    pf_data = result.get("port_forwarding", {})
+    response_data = {
+        "floating_ip_address": pf_data.get("public_ip"),  # IP 주소만
+        "internal_ip_address": pf_data.get("internal_ip_address"),
+        "internal_port": pf_data.get("internal_port"),
+        "external_port": pf_data.get("external_port"),
+        "protocol": pf_data.get("protocol"),
+        "status": pf_data.get("status"),
+    }
+    return response_data

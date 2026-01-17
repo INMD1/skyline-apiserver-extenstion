@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from cinderclient.exceptions import NotFound
 from dateutil import parser
-from fastapi import status
+from fastapi import status, HTTPException
 from fastapi.param_functions import Depends, Header, Query
 from fastapi.routing import APIRouter
 
@@ -651,6 +651,43 @@ def list_volumes(
                 attachment["server_name"] = server_name_map.get(server_id)
 
     return schemas.VolumesResponse(**{"count": count, "volumes": result})
+
+
+@router.delete(
+    "/volumes/{volume_id}",
+    description="Delete a volume",
+    responses={
+        204: {"description": "Volume deleted successfully"},
+        400: {"model": schemas.BadRequestMessage},
+        401: {"model": schemas.UnauthorizedMessage},
+        404: {"model": schemas.NotFoundMessage},
+        500: {"model": schemas.InternalServerErrorMessage},
+    },
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_description="No Content",
+)
+def delete_volume(
+    volume_id: str,
+    profile: schemas.Profile = Depends(deps.get_profile_from_header),
+):
+    """
+    볼륨을 삭제합니다. 인스턴스에 연결된 볼륨은 삭제할 수 없습니다.
+    """
+    current_session = generate_session(profile)
+    try:
+        cinder.delete_volume(
+            session=current_session,
+            profile=profile,
+            volume_id=volume_id,
+        )
+        return
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete volume: {e}",
+        )
 
 
 @router.get(
