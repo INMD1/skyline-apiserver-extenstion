@@ -145,7 +145,16 @@ def create_activity_record(
 
 @check_db_connected
 def get_activity_records_by_user(user_id: str) -> Any:
-    query = select(UserActivity).where(UserActivity.c.user_id == user_id)
+    query = select(UserActivity).where(UserActivity.c.user_id == user_id).order_by(UserActivity.c.timestamp.desc())
+    db = DB.get()
+    with db.transaction():
+        result = db.fetch_all(query)
+    return result
+
+
+@check_db_connected
+def get_activity_records_by_project(project_id: str) -> Any:
+    query = select(UserActivity).where(UserActivity.c.project_id == project_id).order_by(UserActivity.c.timestamp.desc())
     db = DB.get()
     with db.transaction():
         result = db.fetch_all(query)

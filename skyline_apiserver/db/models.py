@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, Integer, MetaData, String, Table
+from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, DateTime
 
 METADATA = MetaData()
 
@@ -45,5 +45,6 @@ UserActivity = Table(
     Column("message", String(length=512), nullable=False),
     Column("status", String(length=32), nullable=False),  # 'success' or
     Column("token", String(length=256), nullable=False),
-    Column("timestamp", Integer, nullable=False)
+    Column("timestamp", Integer, nullable=False),
+    Column("created_at", DateTime, nullable=False),
 )

@@ -23,6 +23,7 @@ from skyline_apiserver.api.v1 import (
     flavor,
     keypair,
     login,
+    logs,
     policy,
     portforward,
     prometheus,
@@ -51,3 +52,4 @@ api_router.include_router(keypair.router, tags=["Keypair"])
 api_router.include_router(limits.router, tags=["Limits"])
 api_router.include_router(performance.router, tags=["Performance"])
 api_router.include_router(activity.router, tags=["Activity"])
+api_router.include_router(logs.router, tags=["Logs"])

@@ -242,6 +242,13 @@ port_forwarding_limit = Opt(
     default=10,
 )
 
+portforward_api_url = Opt(
+    name="portforward_api_url",
+    description="External port forwarding API server URL (Proxy VM API)",
+    schema=HttpUrl,
+    default="http://10.0.0.10:8080/api/v1",
+)
+
 nova_quota_instances = Opt(
     name="nova_quota_instances",
     description="Quota of instances for new projects.",
@@ -305,6 +312,7 @@ ALL_OPTS = (
     portforward_floating_ip_ids,
     shared_floating_ip_project_id,
     port_forwarding_limit,
+    portforward_api_url,
     nova_quota_instances,
     nova_quota_cores,
     nova_quota_ram,
