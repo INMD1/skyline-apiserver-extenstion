@@ -1,30 +1,101 @@
-pbr>=5.8.0 # Apache-2.0
-fastapi>=0.111.0 # MIT
-pydantic>=2.11.7,<3.0.0 # MIT
-uvicorn==0.30.1 # BSD License (3 clause)
-gunicorn>=20.1.0 # MIT
-python-jose<=3.3.0 # MIT
-databases>=0.9.0 # BSD License (3 clause)
-aiomysql>=0.2.0 # MIT
-aiosqlite>=0.20.0 # MIT
-loguru<=0.5.3 # MIT
-PyYAML>=5.4.1 # MIT
-immutables>=0.16 # Apache-2.0
-alembic>=1.7.5 # MIT
-httpx>=0.16.1 # BSD License (3 clause)
-SQLAlchemy>=1.3.24 # MIT
-PyMySQL>=0.9.3 # MIT
-dnspython>=2.1.0 # ISC
-click>=7.1.2 # BSD License (3 clause)
-jinja2>=2.11.3 # BSD License (3 clause)
-h11>=0.11 # MIT
-MarkupSafe>=2.0.1 # BSD License (3 clause)
-python-multipart>=0.0.5 # Apache-2.0
-python-keystoneclient>=3.21.0 # Apache-2.0
-python-cinderclient>=8.1.0 # Apache-2.0
-python-glanceclient>=2.17.1 # Apache-2.0
-python-neutronclient>=6.14.1 # Apache-2.0
-python-novaclient>=15.1.1 # Apache-2.0
-keystoneauth1>=3.17.4 # Apache-2.0
-oslo.policy>=2.3.4 # Apache-2.0
-types-six>=1.16.0 # Apache-2.0
+aiomysql==0.3.2
+aiosqlite==0.22.1
+alembic==1.17.2
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.0
+attrs==25.4.0
+autopage==0.5.2
+certifi==2026.1.4
+cffi==2.0.0
+charset-normalizer==3.4.4
+click==8.3.1
+cliff==4.13.1
+cmd2==3.1.0
+cryptography==46.0.3
+databases==0.9.0
+debtcollector==3.0.0
+decorator==5.2.1
+dnspython==2.8.0
+dogpile.cache==1.5.0
+ecdsa==0.19.1
+fastapi==0.128.0
+greenlet==3.3.0
+gunicorn==23.0.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.11
+immutables==0.21
+iso8601==2.1.0
+Jinja2==3.1.6
+jmespath==1.0.1
+jsonpatch==1.33
+jsonpointer==3.0.0
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1
+keystoneauth1==5.12.0
+loguru==0.5.3
+Mako==1.3.10
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+mdurl==0.1.2
+msgpack==1.1.2
+mysqlclient==2.2.7
+netaddr==1.3.0
+openstacksdk==4.8.0
+os-client-config==2.3.0
+os-service-types==1.8.2
+osc-lib==4.3.0
+oslo.config==10.1.0
+oslo.context==6.2.0
+oslo.i18n==6.7.1
+oslo.log==8.0.0
+oslo.policy==4.7.0
+oslo.serialization==5.9.0
+oslo.utils==9.2.0
+packaging==25.0
+pbr==7.0.3
+platformdirs==4.5.1
+prettytable==3.17.0
+psutil==7.2.1
+pyasn1==0.6.1
+pycparser==2.23
+pydantic==2.12.5
+pydantic_core==2.41.5
+Pygments==2.19.2
+PyMySQL==1.1.2
+pyOpenSSL==25.3.0
+pyparsing==3.3.1
+pyperclip==1.11.0
+python-cinderclient==9.8.0
+python-dateutil==2.9.0.post0
+python-glanceclient==4.10.0
+python-jose==3.3.0
+python-keystoneclient==5.7.0
+python-multipart==0.0.21
+python-neutronclient==11.6.0
+python-novaclient==18.11.0
+PyYAML==6.0.3
+referencing==0.37.0
+requests==2.32.5
+requestsexceptions==1.4.0
+rfc3986==2.0.0
+rich==14.2.0
+rich-argparse==1.7.2
+rpds-py==0.30.0
+rsa==4.9.1
+setuptools==80.9.0
+six==1.17.0
+SQLAlchemy==2.0.45
+starlette==0.50.0
+stevedore==5.6.0
+types-six==1.17.0.20251009
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+urllib3==2.6.2
+uvicorn==0.30.1
+warlock==2.1.0
+wcwidth==0.2.14
+wrapt==2.0.1
