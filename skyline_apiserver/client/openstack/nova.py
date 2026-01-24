@@ -1,0 +1,391 @@
+# Nova(컴퓨트) API와 상호 작용하기 위한 클라이언트 함수들을 제공하는 파일입니다.
+# V 원본 라이센스 (original license)
+# Copyright 2021 99cloud
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from fastapi import status
+from fastapi.exceptions import HTTPException
+from keystoneauth1.exceptions.http import Unauthorized
+from keystoneauth1.session import Session
+from novaclient.exceptions import BadRequest, Forbidden
+
+from skyline_apiserver import schemas
+from skyline_apiserver.client import utils
+from skyline_apiserver.config import CONF
+
+
+def list_servers(
+    profile: schemas.Profile,
+    session: Session,
+    global_request_id: str,
+    search_opts: Optional[Dict[str, Any]] = None,
+    marker: Optional[str] = None,
+    limit: Optional[int] = None,
+    sort_keys: Optional[List[str]] = None,
+    sort_dirs: Optional[List[str]] = None,
+) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=profile.region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.servers.list(
+            search_opts=search_opts,
+            marker=marker,
+            limit=limit,
+            sort_keys=sort_keys,
+            sort_dirs=sort_dirs,
+        )
+    except BadRequest as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Unauthorized as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )
+    except Forbidden as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def list_services(
+    profile: schemas.Profile,
+    session: Session,
+    global_request_id: str,
+    **kwargs: Any,
+) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=profile.region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.services.list(**kwargs)
+    except Unauthorized as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def create_instance_from_volume(
+    session: Session,
+    profile: schemas.Profile,
+    name: str,
+    volume_id: str,
+    flavor_id: str,
+    net_id: str,
+    key_name: str,
+    security_groups: Optional[List[str]] = None,
+):
+    nc = utils.nova_client(session=session, region=profile.region)
+    server = nc.servers.create(
+        name=name,
+        image=CONF.openstack.nova_default_image_for_volume_boot,
+        flavor=flavor_id,
+        nics=[{"net-id": net_id}],
+        key_name=key_name,
+        block_device_mapping={'vda': f'{volume_id}:::0'},
+        security_groups=security_groups,
+    )
+    return server
+
+
+def create_instance_with_network(
+    session: Session,
+    profile: schemas.Profile,
+    name: str,
+    image_id: str,
+    flavor_id: str,
+    net_id: str,
+    key_name: str,
+    security_groups: Optional[List[str]] = None,
+):
+    nc = utils.nova_client(session=session, region=profile.region)
+    server = nc.servers.create(
+        name=name,
+        image=image_id,
+        flavor=flavor_id,
+        nics=[{"net-id": net_id}],
+        key_name=key_name,
+        security_groups=security_groups,
+    )
+    # TODO: Wait for server to be active
+    return server
+
+
+import time
+
+def get_server_internal_ip(
+    session: Session, profile: schemas.Profile, server_id: str
+) -> str:
+    nc = utils.nova_client(session=session, region=profile.region)
+    for _ in range(10):  # Retry for 30 seconds (10 times * 3 seconds)
+        server = nc.servers.get(server_id)
+        for network in server.addresses:
+            for ip in server.addresses[network]:
+                if ip["OS-EXT-IPS:type"] == "fixed":
+                    return ip["addr"]
+        time.sleep(3)
+    raise Exception(f"No internal IP found for server {server_id}")
+
+
+def get_server(session: Session, profile: schemas.Profile, server_id: str) -> Any:
+    nc = utils.nova_client(session=session, region=profile.region)
+    return nc.servers.get(server_id)
+
+
+def get_quotas(
+    session: Session, profile: schemas.Profile, global_request_id: Optional[str] = None
+):
+    try:
+        nc = utils.nova_client(
+            region=profile.region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.quotas.get(profile.project.id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def update_quotas(session: Session, project_id: str, **kwargs: Any) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=CONF.openstack.default_region,
+            session=session,
+        )
+        return nc.quotas.update(project_id, **kwargs)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def get_console_url(
+    session: Session, profile: schemas.Profile, server_id: str, console_type: str
+):
+    nc = utils.nova_client(session=session, region=profile.region)
+    if console_type == "novnc":
+        console = nc.servers.get_vnc_console(server_id, "novnc")
+    return console
+
+
+
+def list_flavors(
+    session: Session,
+    region: str,
+    global_request_id: Optional[str] = None,
+    detailed: bool = True,
+) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.flavors.list(detailed=detailed)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def get_flavor(
+    session: Session,
+    region: str,
+    flavor_id: str,
+    global_request_id: Optional[str] = None,
+) -> Any:
+    try:
+        nc = utils.nova_client(
+            region=region,
+            session=session,
+            global_request_id=global_request_id,
+        )
+        return nc.flavors.get(flavor_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+def list_keypairs(session: Session, region: str, global_request_id: Optional[str] = None) -> Any:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        return nc.keypairs.list()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+def get_keypair(session: Session, region: str, keypair_name: str, global_request_id: Optional[str] = None) -> Any:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        return nc.keypairs.get(keypair_name)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+def create_keypair(session: Session, region: str, name: str, public_key: Optional[str] = None, key_type: str = 'ssh', global_request_id: Optional[str] = None) -> Any:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        return nc.keypairs.create(name, public_key=public_key, key_type=key_type)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+def delete_keypair(session: Session, region: str, keypair_name: str, global_request_id: Optional[str] = None) -> None:
+    try:
+        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        nc.keypairs.delete(keypair_name)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+def attach_volume_to_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+    volume_id: str,
+) -> Any:
+    """Attach a volume to an instance."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        return nc.volumes.create_server_volume(server_id, volume_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to attach volume: {e}",
+        )
+
+
+def detach_volume_from_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+    volume_id: str,
+) -> None:
+    """Detach a volume from an instance."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.volumes.delete_server_volume(server_id, volume_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to detach volume: {e}",
+        )
+
+
+def get_server_volumes(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> list:
+    """Get list of volumes attached to a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        return nc.volumes.get_server_volumes(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get server volumes: {e}",
+        )
+
+
+def delete_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> None:
+    """Delete a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.delete(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete server: {e}",
+        )
+
+
+def start_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> None:
+    """Start a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.start(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start server: {e}",
+        )
+
+
+def stop_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+) -> None:
+    """Stop a server."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.stop(server_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop server: {e}",
+        )
+
+
+def reboot_server(
+    session: Session,
+    profile: schemas.Profile,
+    server_id: str,
+    reboot_type: str = "SOFT",
+) -> None:
+    """Reboot a server. reboot_type can be 'SOFT' or 'HARD'."""
+    try:
+        nc = utils.nova_client(region=profile.region, session=session)
+        nc.servers.reboot(server_id, reboot_type)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reboot server: {e}",
+        )

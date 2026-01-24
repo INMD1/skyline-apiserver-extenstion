@@ -1,0 +1,55 @@
+# v1 API의 모든 라우터를 통합하여 API 엔드포인트를 구성하는 파일입니다.
+# Copyright 2021 99cloud
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from fastapi import APIRouter
+
+from skyline_apiserver.api.v1 import (
+    contrib,
+    extension,
+    instance,
+    image,
+    flavor,
+    keypair,
+    login,
+    logs,
+    policy,
+    portforward,
+    prometheus,
+    setting,
+    user,
+    limits,
+    performance,
+    network,
+    activity,
+)
+
+api_router = APIRouter()
+api_router.include_router(login.router, tags=["Login"])
+api_router.include_router(extension.router, tags=["Extension"])
+api_router.include_router(prometheus.router, tags=["Prometheus"])
+api_router.include_router(contrib.router, tags=["Contrib"])
+api_router.include_router(policy.router, tags=["Policy"])
+api_router.include_router(setting.router, tags=["Setting"])
+api_router.include_router(user.router, tags=["User"])
+api_router.include_router(portforward.router, tags=["Network"])
+api_router.include_router(network.router, tags=["Network"])
+api_router.include_router(instance.router, tags=["Instance"])
+api_router.include_router(image.router, tags=["Image"])
+api_router.include_router(flavor.router, tags=["Flavor"])
+api_router.include_router(keypair.router, tags=["Keypair"])
+api_router.include_router(limits.router, tags=["Limits"])
+api_router.include_router(performance.router, tags=["Performance"])
+api_router.include_router(activity.router, tags=["Activity"])
+api_router.include_router(logs.router, tags=["Logs"])
