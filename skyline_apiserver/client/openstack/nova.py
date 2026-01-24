@@ -107,6 +107,7 @@ def create_instance_from_volume(
     flavor_id: str,
     net_id: str,
     key_name: str,
+    security_groups: Optional[List[str]] = None,
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
@@ -115,7 +116,8 @@ def create_instance_from_volume(
         flavor=flavor_id,
         nics=[{"net-id": net_id}],
         key_name=key_name,
-        block_device_mapping={'vda': f'{volume_id}:::0'}
+        block_device_mapping={'vda': f'{volume_id}:::0'},
+        security_groups=security_groups,
     )
     return server
 
@@ -128,6 +130,7 @@ def create_instance_with_network(
     flavor_id: str,
     net_id: str,
     key_name: str,
+    security_groups: Optional[List[str]] = None,
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
@@ -136,6 +139,7 @@ def create_instance_with_network(
         flavor=flavor_id,
         nics=[{"net-id": net_id}],
         key_name=key_name,
+        security_groups=security_groups,
     )
     # TODO: Wait for server to be active
     return server

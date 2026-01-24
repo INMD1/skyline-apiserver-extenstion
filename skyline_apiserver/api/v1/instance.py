@@ -48,74 +48,101 @@ class PortForwardingDelete(BaseModel):
 router = APIRouter()
 
 
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-
 
 def setup_instance_networking(
     server_id: str,
+    server_name: str,
     profile: schemas.Profile,
     additional_ports: Optional[List[PortForwardingRule]],
 ):
+    """인스턴스 생성 후 SSH 포트포워딩을 자동 설정합니다."""
+    import httpx
+    
     session = utils.generate_session(profile)
     
-    # 시스템 세션 사용 (다른 프로젝트의 floating IP에 포트포워딩 생성)
-    from skyline_apiserver.client.utils import get_system_session
-    system_session = get_system_session()
-    
     try:
-        internal_ip = nova.get_server_internal_ip(session, profile, server_id)
-        
-        # 1. SSH Port Forwarding (Automatic)
-        try:
-            # SSH 전용 Floating IP 찾기 (없으면 일반 FIP 중 하나 사용)
-            ssh_fip = neutron.find_floating_ip_for_ssh(session, profile.region)
-            ssh_fip_id = ssh_fip["id"]
-            
-            # 랜덤 외부 포트 할당 (충돌 시 재시도)
-            for _ in range(5):
-                external_port = random.randrange(10000, 20000) # SSH용 포트 범위
-                try:
-                    neutron.create_port_forwarding_rule(
-                        session=system_session,
-                        region=profile.region,
-                        floatingip_id=ssh_fip_id,
-                        internal_ip_address=internal_ip,
-                        internal_port=22,
-                        external_port=external_port,
-                        protocol="tcp"
-                    )
-                    LOG.info(f"SSH Port Forwarding created: {external_port} -> {internal_ip}:22")
+        # VM의 Internal IP 가져오기 (준비될 때까지 대기)
+        internal_ip = None
+        for _ in range(30):  # 최대 5분 대기
+            try:
+                internal_ip = nova.get_server_internal_ip(session, profile, server_id)
+                if internal_ip:
                     break
-                except Exception:
-                    continue
+            except Exception:
+                pass
+            time.sleep(10)
+        
+        if not internal_ip:
+            LOG.error(f"[네트워크] 서버 {server_id}의 Internal IP를 찾을 수 없습니다.")
+            return
+        
+        LOG.info(f"[네트워크] 서버 {server_id} Internal IP: {internal_ip}")
+        
+        # Portforward 서비스 API URL (환경변수 또는 기본값)
+        portforward_api_url = CONF.openstack.portforward_api_url or "http://localhost:8080"
+        
+        # 1. SSH Port Forwarding (Automatic) - 외부 portforward API 호출
+        try:
+            ssh_payload = {
+                "rule_name": f"ssh-{server_id[:8]}",
+                "user_vm_id": server_id,
+                "user_vm_name": server_name,
+                "user_vm_internal_ip": internal_ip,
+                "user_vm_internal_port": 22,
+                "service_type": "ssh",  # SSH 전용 IP에서 할당
+                "protocol": "tcp"
+            }
+            
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(
+                    f"{portforward_api_url}/portforward",
+                    json=ssh_payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                
+                if response.status_code == 201:
+                    result = response.json()
+                    LOG.info(f"[SSH 포트포워딩 생성 완료] 서버: {server_id}, "
+                            f"외부: {result.get('proxy_external_ip')}:{result.get('proxy_external_port')} -> "
+                            f"내부: {internal_ip}:22")
+                else:
+                    LOG.warning(f"[SSH 포트포워딩 생성 실패] 상태: {response.status_code}, 응답: {response.text}")
+                    
         except Exception as e:
-            LOG.warning(f"Failed to create SSH port forwarding: {e}")
+            LOG.warning(f"[SSH 포트포워딩 생성 오류] 서버: {server_id}, 오류: {e}")
 
-        # 2. Additional Ports
+        # 2. Additional Ports - 외부 portforward API 호출
         if additional_ports:
-            fip = neutron.find_portforward_floating_ip(session, profile.region)
-            fip_id = fip["id"]
             for port in additional_ports:
                 try:
-                    ext_port = port.external_port
-                    if not ext_port:
-                        ext_port = random.randrange(20000, 30000) # 일반 포트 범위
-
-                    neutron.create_port_forwarding_rule(
-                        session=system_session,
-                        region=profile.region,
-                        floatingip_id=fip_id,
-                        internal_ip_address=internal_ip,
-                        internal_port=port.internal_port,
-                        external_port=ext_port,
-                        protocol=port.protocol,
-                    )
+                    port_payload = {
+                        "rule_name": f"port-{server_id[:8]}-{port.internal_port}",
+                        "user_vm_id": server_id,
+                        "user_vm_name": server_name,
+                        "user_vm_internal_ip": internal_ip,
+                        "user_vm_internal_port": port.internal_port,
+                        "proxy_external_port": port.external_port if port.external_port else None,
+                        "service_type": "other",  # 일반 포트용 IP에서 할당
+                        "protocol": port.protocol
+                    }
+                    
+                    with httpx.Client(timeout=30.0) as client:
+                        response = client.post(
+                            f"{portforward_api_url}/portforward",
+                            json=port_payload,
+                            headers={"Content-Type": "application/json"}
+                        )
+                        
+                        if response.status_code == 201:
+                            result = response.json()
+                            LOG.info(f"[추가 포트포워딩 생성 완료] 서버: {server_id}, 포트: {port.internal_port}")
+                        else:
+                            LOG.warning(f"[추가 포트포워딩 생성 실패] 포트: {port.internal_port}, 상태: {response.status_code}")
+                            
                 except Exception as e:
-                    LOG.warning(f"Failed to create additional port forwarding ({port.internal_port}): {e}")
+                    LOG.warning(f"[추가 포트포워딩 생성 오류] 포트: {port.internal_port}, 오류: {e}")
 
     except Exception as e:
-        # You might want to log this error or update the server status to ERROR
         LOG.error(f"[네트워크] 서버 {server_id} 네트워크 설정 실패: {e}")
 
 
@@ -138,7 +165,7 @@ def create_instance(
         category="인스턴스 생성",
         message=f"인스턴스 '{instance.name}' 생성 요청 (요청ID: {request_id})",
         status="pending",
-        token=profile.keystone_token[:32] if profile.keystone_token else "",
+        token="",  # 보안을 위해 토큰 저장 제거
     )
 
     # 실제 생성 로직은 백그라운드 태스크로 돌림
@@ -181,6 +208,7 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
                 flavor_id=instance.flavor_id,
                 net_id=instance.network_id,
                 key_name=instance.key_name,
+                security_groups=["all-internal-allow"],
             )
             LOG.info(f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}, 볼륨ID: {volume.id}")
         else:
@@ -195,11 +223,12 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
                 flavor_id=instance.flavor_id,
                 net_id=instance.network_id,
                 key_name=instance.key_name,
+                security_groups=["all-internal-allow"],
             )
             LOG.info(f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}")
 
         # 추가 네트워크 세팅도 백그라운드로
-        setup_instance_networking(server.id, profile, instance.additional_ports)
+        setup_instance_networking(server.id, instance.name, profile, instance.additional_ports)
 
         # 성공 기록 (DB 업데이트 같은 것)
         LOG.info(f"[프로비저닝 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}")
@@ -338,11 +367,6 @@ def get_port_forwarding_stats(
             "limit": CONF.openstack.port_forwarding_limit,
             "remaining": max(0, CONF.openstack.port_forwarding_limit - total_port_forwardings),
             "port_forwardings": user_port_forwardings,
-            "_debug": {
-                "user_vm_ips": list(user_internal_ips),
-                "configured_fip_ids": configured_fip_ids,
-                "all_pfs_found": all_pfs_found,
-            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get port forwarding stats: {e}")
@@ -557,7 +581,7 @@ def delete_instance(
             category="인스턴스 삭제",
             message=f"인스턴스 '{instance_id}' 삭제 (볼륨: {volume_ids})",
             status="success",
-            token=profile.keystone_token[:32] if profile.keystone_token else "",
+            token="",  # 보안을 위해 토큰 저장 제거
         )
         
         # 3. 볼륨 삭제는 백그라운드에서 처리 (인스턴스가 완전히 삭제된 후 삭제해야 함)
@@ -684,7 +708,7 @@ def start_instance(
             category="인스턴스 시작",
             message=f"인스턴스 '{instance_id}' 시작",
             status="success",
-            token=profile.keystone_token[:32] if profile.keystone_token else "",
+            token="",  # 보안을 위해 토큰 저장 제거
         )
         return {"message": "Instance started successfully", "instance_id": instance_id}
     except Exception as e:
@@ -713,7 +737,7 @@ def stop_instance(
             category="인스턴스 정지",
             message=f"인스턴스 '{instance_id}' 정지",
             status="success",
-            token=profile.keystone_token[:32] if profile.keystone_token else "",
+            token="",  # 보안을 위해 토큰 저장 제거
         )
         return {"message": "Instance stopped successfully", "instance_id": instance_id}
     except Exception as e:
@@ -747,7 +771,7 @@ def reboot_instance(
             category="인스턴스 재시작",
             message=f"인스턴스 '{instance_id}' 재시작 (타입: {reboot_request.reboot_type})",
             status="success",
-            token=profile.keystone_token[:32] if profile.keystone_token else "",
+            token="",  # 보안을 위해 토큰 저장 제거
         )
         return {"message": "Instance rebooted successfully", "instance_id": instance_id, "reboot_type": reboot_request.reboot_type}
     except Exception as e:

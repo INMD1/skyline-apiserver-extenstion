@@ -65,9 +65,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     LOG.debug("Skyline API server stop")
 
 
+import os
+
+# 프로덕션 환경에서는 Swagger 문서 비활성화
+_is_production = os.getenv("SKYLINE_ENV", "development").lower() == "production"
+
 app = FastAPI(
     title=PROJECT_NAME,
-    openapi_url=f"{constants.API_PREFIX}/openapi.json",
+    openapi_url=None if _is_production else f"{constants.API_PREFIX}/openapi.json",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
     lifespan=lifespan,
 )
 

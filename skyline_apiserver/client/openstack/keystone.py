@@ -28,6 +28,7 @@ from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
 from skyline_apiserver.client.openstack import cinder, nova, neutron
 from skyline_apiserver.config import CONF
+from skyline_apiserver.log import LOG
 from skyline_apiserver.schemas.user import SignupRequest
 
 
@@ -198,7 +199,7 @@ async def create_user(user: SignupRequest):
                 # However, rolling back user creation might be too aggressive if only SG fails.
                 # I will print to log for now (or let it pass silently in production if logging not set up well)
                 # But since I don't see robust logging here, I'll just proceed.
-                print(f"Failed to create default security group: {e}")
+                LOG.warning(f"Failed to create default security group: {e}")
 
 
             return True, "User, project, and roles created successfully."
