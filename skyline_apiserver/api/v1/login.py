@@ -27,6 +27,7 @@ from fastapi.routing import APIRouter
 from keystoneauth1.identity.v3 import Password, Token
 from keystoneauth1.session import Session
 from keystoneclient.client import Client as KeystoneClient
+import httpx
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import Response
@@ -64,14 +65,35 @@ def _get_default_project_id(
     session: Session, region: str, user_id: Optional[str] = None
 ) -> Union[str, None]:
     system_session = get_system_session()
+    system_token = system_session.get_token()
+    
+    # Base URL for direct API calls - remove trailing slash if present
+    base_url = CONF.openstack.keystone_url.rstrip('/')
+    
+    headers = {"X-Auth-Token": system_token}
+    
     if not user_id:
+        # Get user_id from the session token
         token = session.get_token()
-        token_data = get_token_data(token, region, system_session)  # type: ignore
-        _user_id = token_data["token"]["user"]["id"]
+        # Use direct HTTP API to get token data
+        with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+            resp = client.get(f"{base_url}/auth/tokens", headers={"X-Auth-Token": system_token, "X-Subject-Token": token})
+            if resp.status_code == 200:
+                token_data = resp.json()
+                _user_id = token_data["token"]["user"]["id"]
+            else:
+                return None
     else:
         _user_id = user_id
-    user = get_user(_user_id, region, system_session)
-    return getattr(user, "default_project_id", None)
+    
+    # Get user details directly via API
+    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+        resp = client.get(f"{base_url}/users/{_user_id}", headers=headers)
+        if resp.status_code == 200:
+            user_data = resp.json()
+            return user_data.get("user", {}).get("default_project_id")
+    
+    return None
 
 
 def _get_projects_and_unscope_token(
@@ -82,11 +104,7 @@ def _get_projects_and_unscope_token(
     token: Optional[str] = None,
     project_enabled: bool = False,
 ) -> Tuple[List[Any], str, Union[str, None]]:
-    auth_url = utils.get_endpoint(
-        region=region,
-        service="identity",
-        session=get_system_session(),
-    )
+    auth_url = CONF.openstack.keystone_url
 
     if token:
         unscope_auth = Token(
@@ -107,13 +125,38 @@ def _get_projects_and_unscope_token(
         auth=unscope_auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT
     )
 
-    unscope_client = KeystoneClient(
-        session=session,
-        endpoint=auth_url,
-        interface=CONF.openstack.interface_type,
-    )
+    # Get unscoped token
+    unscope_token = token if token else session.get_token()
 
-    project_scope = unscope_client.auth.projects()
+    # Get projects list directly via API to avoid service catalog issues
+    # Remove trailing slash from auth_url if present to avoid double slashes
+    # auth_url is CONF.openstack.keystone_url which ends with /v3/
+    base_url = auth_url.rstrip('/')
+    headers = {"X-Auth-Token": unscope_token}
+    
+    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+        # We need to call /auth/projects (which is relative to /v3)
+        # base_url ends with /v3, so base_url + '/auth/projects' is correct
+        resp = client.get(f"{base_url}/auth/projects", headers=headers)
+        if resp.status_code != 200:
+             # If /auth/projects fails, try /projects just in case (though /auth/projects is standard for Keystone v3)
+             resp = client.get(f"{base_url}/projects", headers=headers)
+             if resp.status_code != 200:
+                raise Exception(f"Failed to get projects: {resp.status_code} {resp.text}")
+        projects_data = resp.json().get("projects", [])
+
+    # Convert to objects similar to what KeystoneClient returns
+    from types import SimpleNamespace
+    project_scope = [
+        SimpleNamespace(
+            id=p["id"],
+            name=p["name"],
+            enabled=p.get("enabled", True),
+            domain_id=p.get("domain_id"),
+            description=p.get("description", ""),
+        )
+        for p in projects_data
+    ]
     unscope_token = token if token else session.get_token()
 
     if project_enabled:

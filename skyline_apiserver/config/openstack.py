@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import HttpUrl, StrictBool, StrictInt, StrictStr
 
@@ -30,6 +30,34 @@ keystone_url = Opt(
     ),
     schema=HttpUrl,
     default="http://127.0.0.1:5000/v3/",
+)
+
+nova_endpoint = Opt(
+    name="nova_endpoint",
+    description="Nova service endpoint URL (optional, overrides service catalog)",
+    schema=Optional[HttpUrl],
+    default=None,
+)
+
+cinder_endpoint = Opt(
+    name="cinder_endpoint",
+    description="Cinder service endpoint URL (optional, overrides service catalog)",
+    schema=Optional[HttpUrl],
+    default=None,
+)
+
+neutron_endpoint = Opt(
+    name="neutron_endpoint",
+    description="Neutron service endpoint URL (optional, overrides service catalog)",
+    schema=Optional[HttpUrl],
+    default=None,
+)
+
+glance_endpoint = Opt(
+    name="glance_endpoint",
+    description="Glance service endpoint URL (optional, overrides service catalog)",
+    schema=Optional[HttpUrl],
+    default=None,
 )
 
 system_project_domain = Opt(
@@ -291,6 +319,10 @@ ALL_OPTS = (
     sso_protocols,
     sso_region,
     keystone_url,
+    nova_endpoint,
+    cinder_endpoint,
+    neutron_endpoint,
+    glance_endpoint,
     system_project_domain,
     system_project,
     system_user_domain,

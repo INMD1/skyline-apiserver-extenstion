@@ -25,7 +25,7 @@ from jose import jwt
 
 from skyline_apiserver import schemas, version
 from skyline_apiserver.client import utils
-from skyline_apiserver.client.openstack.keystone import get_user
+# from skyline_apiserver.client.openstack.keystone import get_user
 from skyline_apiserver.client.utils import get_system_session
 from skyline_apiserver.config import CONF
 from skyline_apiserver.db import api as db_api
@@ -57,9 +57,9 @@ def generate_profile(
     uuid_value: Optional[str] = None,
 ) -> schemas.Profile:
     try:
+        from skyline_apiserver.client.openstack.keystone import get_token_data, get_user
         system_session = get_system_session()
-        kc = utils.keystone_client(session=system_session, region=region)
-        token_data = kc.tokens.get_token_data(token=keystone_token)
+        token_data = get_token_data(token=keystone_token, region=region, session=system_session)
         user_id = token_data["token"]["user"]["id"]
         user_info = get_user(id=user_id, region=region, session=system_session)
 

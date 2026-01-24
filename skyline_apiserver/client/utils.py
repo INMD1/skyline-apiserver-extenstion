@@ -35,11 +35,7 @@ SESSION = None
 
 
 def generate_session(profile: schemas.Profile) -> Any:
-    auth_url = get_endpoint(
-        region=profile.region,
-        service="identity",
-        session=get_system_session(),
-    )
+    auth_url = CONF.openstack.keystone_url
     kwargs = {
         "auth_url": auth_url,
         "token": profile.keystone_token,
@@ -121,14 +117,23 @@ def glance_client(
     global_request_id: Optional[str] = None,
     version: str = constants.GLANCE_API_VERSION,
 ) -> HTTPClient:
-    client = GlanceClient(
-        version=version,
-        session=session,
-        global_request_id=global_request_id,
-        service_type='image',
-        interface=CONF.openstack.interface_type,
-        region_name=region,
-    )
+    endpoint = CONF.openstack.glance_endpoint
+    if endpoint:
+        client = GlanceClient(
+            version=version,
+            session=session,
+            endpoint_override=endpoint,
+            global_request_id=global_request_id,
+        )
+    else:
+        client = GlanceClient(
+            version=version,
+            session=session,
+            global_request_id=global_request_id,
+            service_type='image',
+            interface=CONF.openstack.interface_type,
+            region_name=region,
+        )
     return client
 
 
@@ -138,7 +143,7 @@ def nova_client(
     global_request_id: Optional[str] = None,
     version: str = constants.NOVA_API_VERSION,
 ) -> HTTPClient:
-    endpoint = get_endpoint(region, "compute", session=session)
+    endpoint = CONF.openstack.nova_endpoint or get_endpoint(region, "compute", session=session)
     client = NovaClient(
         version=version,
         session=session,
@@ -154,7 +159,7 @@ def cinder_client(
     global_request_id: Optional[str] = None,
     version: str = constants.CINDER_API_VERSION,
 ) -> HTTPClient:
-    endpoint = get_endpoint(region, "block-storage", session=session)
+    endpoint = CONF.openstack.cinder_endpoint or get_endpoint(region, "block-storage", session=session)
     client = CinderClient(
         version=version,
         session=session,
@@ -170,7 +175,7 @@ def neutron_client(
     global_request_id: Optional[str] = None,
     version: str = constants.NEUTRON_API_VERSION,
 ) -> NeutronClient:
-    endpoint = get_endpoint(region, "network", session=session)
+    endpoint = CONF.openstack.neutron_endpoint or get_endpoint(region, "network", session=session)
     client = NeutronClient(
         version=version,
         session=session,

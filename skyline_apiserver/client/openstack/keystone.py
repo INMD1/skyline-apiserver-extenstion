@@ -37,9 +37,9 @@ async def _delete_project(project_id: str):
     headers = {"X-Auth-Token": auth_token}
     keystone_url = CONF.openstack.keystone_url
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False) as client:
+    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
         delete_resp = await client.delete(
-            f"{keystone_url}/v3/projects/{project_id}", headers=headers
+            f"{keystone_url}/projects/{project_id}", headers=headers
         )
         if delete_resp.status_code != 204:
             # TODO: Log this failure
@@ -52,9 +52,9 @@ async def _delete_user(user_id: str):
     headers = {"X-Auth-Token": auth_token}
     keystone_url = CONF.openstack.keystone_url
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False) as client:
+    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
         delete_resp = await client.delete(
-            f"{keystone_url}/v3/users/{user_id}", headers=headers
+            f"{keystone_url}/users/{user_id}", headers=headers
         )
         if delete_resp.status_code != 204:
             # TODO: Log this failure
@@ -70,7 +70,7 @@ async def create_user(user: SignupRequest):
     new_project_id = None
     new_user_id = None
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False) as client:
+    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
         try:
             # 1. Create a new project for the user
             project_payload = {
@@ -82,7 +82,7 @@ async def create_user(user: SignupRequest):
                 }
             }
             project_resp = await client.post(
-                f"{keystone_url}/v3/projects", json=project_payload, headers=headers
+                f"{keystone_url}/projects", json=project_payload, headers=headers
             )
             if project_resp.status_code != 201:
                 return False, f"Failed to create project: {project_resp.text}"
@@ -120,7 +120,7 @@ async def create_user(user: SignupRequest):
                 }
             }
             user_resp = await client.post(
-                f"{keystone_url}/v3/users", json=user_payload, headers=headers
+                f"{keystone_url}/users", json=user_payload, headers=headers
             )
             if user_resp.status_code != 201:
                 raise Exception(f"Failed to create user: {user_resp.text}")
@@ -132,7 +132,7 @@ async def create_user(user: SignupRequest):
             if not member_role_id:
                 raise Exception("Member role ID is not configured.")
             member_role_url = (
-                f"{keystone_url}/v3/projects/{new_project_id}/users/"
+                f"{keystone_url}/projects/{new_project_id}/users/"
                 f"{new_user_id}/roles/{member_role_id}"
             )
             member_role_resp = await client.put(member_role_url, headers=headers)
@@ -147,7 +147,7 @@ async def create_user(user: SignupRequest):
             if not admin_user_id or not admin_role_id:
                 raise Exception("Admin user ID or admin role ID is not configured.")
             admin_role_url = (
-                f"{keystone_url}/v3/projects/{new_project_id}/users/"
+                f"{keystone_url}/projects/{new_project_id}/users/"
                 f"{admin_user_id}/roles/{admin_role_id}"
             )
             admin_role_resp = await client.put(admin_role_url, headers=headers)
@@ -226,10 +226,30 @@ def revoke_token(
 
 
 def get_token_data(token: str, region: str, session: Session) -> Any:
-    kc = utils.keystone_client(session=session, region=region)
-    return kc.tokens.get_token_data(token=token)
+    base_url = CONF.openstack.keystone_url.rstrip('/')
+    auth_token = session.get_token()
+    headers = {"X-Auth-Token": auth_token, "X-Subject-Token": token}
+    
+    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+        resp = client.get(f"{base_url}/auth/tokens", headers=headers)
+        if resp.status_code == 200:
+            return resp.json()
+    raise Exception(f"Failed to get token data: {resp.status_code} {resp.text}")
 
 
 def get_user(id: str, region: str, session: Session) -> Any:
-    kc = utils.keystone_client(session=session, region=region)
-    return kc.users.get(id)
+    base_url = CONF.openstack.keystone_url.rstrip('/')
+    auth_token = session.get_token()
+    headers = {"X-Auth-Token": auth_token}
+
+    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+        resp = client.get(f"{base_url}/users/{id}", headers=headers)
+        if resp.status_code == 200:
+            user_data = resp.json().get("user", {})
+            from types import SimpleNamespace
+            # Ensure default_project_id exists even if None
+            if "default_project_id" not in user_data:
+                user_data["default_project_id"] = None
+            return SimpleNamespace(**user_data)
+    
+    raise Exception(f"Failed to get user {id}: {resp.status_code} {resp.text}")
