@@ -338,28 +338,67 @@ def find_best_floating_ip_for_vm(session: Session, region: str, internal_ip: str
     return best_fip
 
 
+def create_security_group(
+    session: Session,
+    region: str,
+    name: str,
+    description: str,
+    project_id: Optional[str] = None
+) -> Dict[str, Any]:
+    nc = utils.neutron_client(session=session, region=region)
+    body = {
+        "security_group": {
+            "name": name,
+            "description": description,
+        }
+    }
+    if project_id:
+        body["security_group"]["project_id"] = project_id
+    
+    return nc.create_security_group(body)["security_group"]
+
+
 def create_security_group_rule(
     session: Session,
     region: str,
     sg_id: str,
     direction: str,
-    remote_group_id: str,
-    protocol: str = "tcp",
-    port_range_min: int = 1,
-    port_range_max: int = 65535,
+    remote_group_id: Optional[str] = None,
+    remote_ip_prefix: Optional[str] = None,
+    protocol: Optional[str] = "tcp",
+    port_range_min: Optional[int] = 1,
+    port_range_max: Optional[int] = 65535,
+    ethertype: str = "IPv4",
+    project_id: Optional[str] = None,
 ):
     nc = utils.neutron_client(session=session, region=region)
-    body = {
-        "security_group_rule": {
-            "security_group_id": sg_id,
-            "direction": direction,
-            "remote_group_id": remote_group_id,
-            "protocol": protocol,
-            "port_range_min": port_range_min,
-            "port_range_max": port_range_max,
-        }
+    
+    rule_def = {
+        "security_group_id": sg_id,
+        "direction": direction,
+        "ethertype": ethertype,
     }
-    return nc.create_security_group_rule(body)
+    
+    if remote_group_id:
+        rule_def["remote_group_id"] = remote_group_id
+    if remote_ip_prefix:
+        rule_def["remote_ip_prefix"] = remote_ip_prefix
+    
+    if protocol == "any":
+        rule_def["protocol"] = None
+    elif protocol:
+        rule_def["protocol"] = protocol
+        
+    if port_range_min is not None:
+        rule_def["port_range_min"] = port_range_min
+    if port_range_max is not None:
+        rule_def["port_range_max"] = port_range_max
+        
+    if project_id:
+        rule_def["project_id"] = project_id
+
+    body = {"security_group_rule": rule_def}
+    return nc.create_security_group_rule(body)["security_group_rule"]
 
 
 def list_networks(

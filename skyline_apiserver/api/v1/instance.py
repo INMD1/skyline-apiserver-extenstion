@@ -65,32 +65,55 @@ def setup_instance_networking(
     
     try:
         internal_ip = nova.get_server_internal_ip(session, profile, server_id)
-        ssh_fip = neutron.find_floating_ip_for_ssh(session, profile.region)
-        ssh_fip_id = ssh_fip["id"]
+        
+        # 1. SSH Port Forwarding (Automatic)
+        try:
+            # SSH 전용 Floating IP 찾기 (없으면 일반 FIP 중 하나 사용)
+            ssh_fip = neutron.find_floating_ip_for_ssh(session, profile.region)
+            ssh_fip_id = ssh_fip["id"]
+            
+            # 랜덤 외부 포트 할당 (충돌 시 재시도)
+            for _ in range(5):
+                external_port = random.randrange(10000, 20000) # SSH용 포트 범위
+                try:
+                    neutron.create_port_forwarding_rule(
+                        session=system_session,
+                        region=profile.region,
+                        floatingip_id=ssh_fip_id,
+                        internal_ip_address=internal_ip,
+                        internal_port=22,
+                        external_port=external_port,
+                        protocol="tcp"
+                    )
+                    LOG.info(f"SSH Port Forwarding created: {external_port} -> {internal_ip}:22")
+                    break
+                except Exception:
+                    continue
+        except Exception as e:
+            LOG.warning(f"Failed to create SSH port forwarding: {e}")
 
-        # Auto-assign SSH port using random port allocation
-        neutron.create_port_forwarding_rule(
-            session=system_session,  # 시스템 세션 사용
-            region=profile.region,
-            floatingip_id=ssh_fip_id,
-            internal_ip_address=internal_ip,
-            internal_port=22,
-            external_port=random.randrange(1, 600),
-        )
-
+        # 2. Additional Ports
         if additional_ports:
             fip = neutron.find_portforward_floating_ip(session, profile.region)
             fip_id = fip["id"]
             for port in additional_ports:
-                neutron.create_port_forwarding_rule(
-                    session=system_session,  # 시스템 세션 사용
-                    region=profile.region,
-                    floatingip_id=fip_id,
-                    internal_ip_address=internal_ip,
-                    internal_port=port.internal_port,
-                    external_port=port.external_port if port.external_port else None,  # Auto-assign if not provided
-                    protocol=port.protocol,
-                )
+                try:
+                    ext_port = port.external_port
+                    if not ext_port:
+                        ext_port = random.randrange(20000, 30000) # 일반 포트 범위
+
+                    neutron.create_port_forwarding_rule(
+                        session=system_session,
+                        region=profile.region,
+                        floatingip_id=fip_id,
+                        internal_ip_address=internal_ip,
+                        internal_port=port.internal_port,
+                        external_port=ext_port,
+                        protocol=port.protocol,
+                    )
+                except Exception as e:
+                    LOG.warning(f"Failed to create additional port forwarding ({port.internal_port}): {e}")
+
     except Exception as e:
         # You might want to log this error or update the server status to ERROR
         LOG.error(f"[네트워크] 서버 {server_id} 네트워크 설정 실패: {e}")
@@ -494,9 +517,35 @@ def delete_instance(
     session = utils.generate_session(profile)
     
     try:
+        # 0. 포트포워딩 규칙 정리 (먼저 수행)
+        try:
+            internal_ip = nova.get_server_internal_ip(session, profile, instance_id)
+            if internal_ip:
+                pfs = neutron.get_port_forwardings_by_internal_ip(session, profile.region, internal_ip)
+                if pfs:
+                    LOG.info(f"[포트포워딩 정리] 인스턴스 {instance_id} ({internal_ip}) 관련 규칙 {len(pfs)}개 삭제 시작")
+                    # 시스템 세션으로 삭제
+                    from skyline_apiserver.client.utils import get_system_session
+                    system_session = get_system_session()
+                    
+                    for pf in pfs:
+                        try:
+                            neutron.delete_port_forwarding_rule(
+                                session=system_session,
+                                region=profile.region,
+                                floatingip_id=pf["floating_ip_id"],
+                                pf_id=pf["id"]
+                            )
+                        except Exception as ignore:
+                            LOG.warning(f"포트포워딩 규칙 삭제 실패 (ID: {pf.get('id')}): {ignore}")
+                    LOG.info(f"[포트포워딩 정리] 완료")
+        except Exception as e:
+             LOG.warning(f"인스턴스 삭제 전 포트포워딩 정리 중 오류 발생: {e}")
+
         # 1. 인스턴스에 연결된 볼륨 목록 가져오기
         attached_volumes = nova.get_server_volumes(session, profile, instance_id)
         volume_ids = [vol.volumeId for vol in attached_volumes]
+        
         # 2. 인스턴스 삭제
         LOG.info(f"[인스턴스 삭제] 사용자: {profile.user.name}, 프로젝트: {profile.project.name}, 인스턴스ID: {instance_id}, 연결된볼륨: {volume_ids}")
         nova.delete_server(session, profile, instance_id)

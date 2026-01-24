@@ -61,10 +61,13 @@ def create_portforwarding(
     """포트포워딩 규칙 생성"""
     url = f"{_get_base_url()}/portforward"
     with httpx.Client(timeout=30.0) as client:
+        json_payload = request.model_dump(exclude_none=True)
+        from skyline_apiserver.log import LOG
+        LOG.debug(f"Creating portforwarding with payload: {json_payload}")
         response = client.post(
             url,
             headers=_get_headers(token),
-            json=request.model_dump(exclude_none=True),
+            json=json_payload,
         )
         return _handle_response(response)
 
