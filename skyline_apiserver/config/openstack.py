@@ -277,6 +277,13 @@ portforward_api_url = Opt(
     default="http://10.0.0.10:8080/api/v1",
 )
 
+portforward_authorization_key = Opt(
+    name="portforward_authorization_key",
+    description="Authorization key for external port forwarding API server",
+    schema=Optional[StrictStr],
+    default=None,
+)
+
 nova_quota_instances = Opt(
     name="nova_quota_instances",
     description="Quota of instances for new projects.",
@@ -345,6 +352,7 @@ ALL_OPTS = (
     shared_floating_ip_project_id,
     port_forwarding_limit,
     portforward_api_url,
+    portforward_authorization_key,
     nova_quota_instances,
     nova_quota_cores,
     nova_quota_ram,

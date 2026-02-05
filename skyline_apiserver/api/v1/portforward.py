@@ -37,11 +37,6 @@ from skyline_apiserver.schemas.portforward import (
 router = APIRouter()
 
 
-def _get_token_from_profile(profile: schemas.Profile) -> str:
-    """프로필에서 토큰 추출"""
-    return profile.keystone_token
-
-
 def _handle_client_error(e: PortForwardClientError):
     """클라이언트 에러를 HTTP 예외로 변환"""
     raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -65,8 +60,7 @@ def get_status(
 ):
     """시스템 상태 조회"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.get_status(token)
+        result = portforward_client.get_status(None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -78,8 +72,7 @@ def get_floating_ips(
 ):
     """Floating IP 상태 조회"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.get_floating_ips(token)
+        result = portforward_client.get_floating_ips(None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -92,8 +85,7 @@ def preview_port_allocation(
 ):
     """포트 할당 미리보기"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.preview_port_allocation(service_type.value, token)
+        result = portforward_client.preview_port_allocation(service_type.value, None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -106,8 +98,7 @@ def get_portforwardings_by_vm(
 ):
     """VM별 포트포워딩 규칙 조회"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.get_portforwardings_by_vm(vm_id, token)
+        result = portforward_client.get_portforwardings_by_vm(vm_id, None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -122,8 +113,7 @@ def create_portforwarding(
 ):
     """포트포워딩 규칙 생성"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.create_portforwarding(request, token)
+        result = portforward_client.create_portforwarding(request, None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -139,13 +129,12 @@ def list_portforwardings(
 ):
     """포트포워딩 규칙 목록 조회"""
     try:
-        token = _get_token_from_profile(profile)
         result = portforward_client.list_portforwardings(
             status_filter=status_filter,
             floating_ip=floating_ip,
             service_type=service_type,
             vm_id=vm_id,
-            token=token,
+            token=None,  # 설정 파일의 키 사용
         )
         return result
     except PortForwardClientError as e:
@@ -161,8 +150,7 @@ def get_portforwarding(
 ):
     """특정 포트포워딩 규칙 조회"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.get_portforwarding(rule_id, token)
+        result = portforward_client.get_portforwarding(rule_id, None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -176,8 +164,7 @@ def update_portforwarding(
 ):
     """포트포워딩 규칙 업데이트"""
     try:
-        token = _get_token_from_profile(profile)
-        result = portforward_client.update_portforwarding(rule_id, request, token)
+        result = portforward_client.update_portforwarding(rule_id, request, None)  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -190,7 +177,6 @@ def delete_portforwarding(
 ):
     """포트포워딩 규칙 삭제"""
     try:
-        token = _get_token_from_profile(profile)
-        portforward_client.delete_portforwarding(rule_id, token)
+        portforward_client.delete_portforwarding(rule_id, None)  # 설정 파일의 키 사용
     except PortForwardClientError as e:
         _handle_client_error(e)

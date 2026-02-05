@@ -15,7 +15,7 @@ default:
   prometheus_basic_auth_user: ''
   prometheus_enable_basic_auth: false
   prometheus_endpoint: http://localhost:9091
-  secret_key: aCtmgbcUqYUy_HNVg5BDXCaeJgJQzHJXwqbXr0Nmb2o
+  secret_key: 
   session_name: session
   ssl_enabled: true
 openstack:
@@ -61,6 +61,7 @@ openstack:
   shared_floating_ip_project_id: ''
   ssh_floating_ip_id: ''
   portforward_floating_ip_ids: []
+  portforward_authorization_key: ''  # 포트포워딩 API 인증 키
   sso_enabled: false
   sso_protocols:
   - openid

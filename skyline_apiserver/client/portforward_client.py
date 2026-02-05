@@ -31,19 +31,36 @@ def _get_base_url() -> str:
 
 def _get_headers(token: Optional[str] = None) -> Dict[str, str]:
     """HTTP 헤더 생성"""
+    from skyline_apiserver.log import LOG
+    
     headers = {"Content-Type": "application/json"}
+    
+    # 1. 명시적으로 전달된 토큰 사용
     if token:
         headers["Authorization"] = f"Bearer {token}"
+        LOG.debug(f"[PortForward] Using explicit token: {token[:20]}..." if len(token) > 20 else f"[PortForward] Using explicit token: {token}")
+    # 2. 설정 파일의 Authorization 키 사용
+    else:
+        auth_key = CONF.openstack.portforward_authorization_key
+        if auth_key:
+            headers["Authorization"] = f"Bearer {auth_key}"
+            LOG.debug(f"[PortForward] Using config auth key: {auth_key[:20]}..." if len(auth_key) > 20 else f"[PortForward] Using config auth key: {auth_key}")
+        else:
+            LOG.warning("[PortForward] No authorization token or key available")
     return headers
 
 
 def _handle_response(response: httpx.Response) -> Dict[str, Any]:
     """응답 처리 및 에러 핸들링"""
+    from skyline_apiserver.log import LOG
+    
     if response.status_code >= 400:
         try:
             detail = response.json().get("detail", response.text)
         except Exception:
             detail = response.text
+        
+        LOG.error(f"[PortForward] API Error - Status: {response.status_code}, Detail: {detail}, URL: {response.url}")
         raise PortForwardClientError(response.status_code, detail)
     
     if response.status_code == 204:
