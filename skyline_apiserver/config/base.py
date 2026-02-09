@@ -113,10 +113,27 @@ class Configuration:
 
     def setup(self, project: str, env: Dict[str, str]) -> None:
         config_dir_path, config_file_path = self.get_config_path(project, env)
-        if not Path(config_file_path).exists():
-            raise ValueError(f"Not found config file: {config_file_path}")
+        
+        # 여러 위치에서 설정 파일 찾기
+        possible_paths = [
+            config_file_path,  # /etc/skyline/skyline.yaml
+            Path(__file__).parent.parent.parent / "etc" / f"{project}.yaml",  # 프로젝트 디렉토리
+            Path.cwd() / "etc" / f"{project}.yaml",  # 현재 디렉토리
+        ]
+        
+        config_file = None
+        for path in possible_paths:
+            if Path(path).exists():
+                config_file = path
+                break
+        
+        if config_file is None:
+            raise ValueError(
+                f"Not found config file in any of these locations:\n"
+                + "\n".join(f"  - {p}" for p in possible_paths)
+            )
 
-        with open(config_file_path) as f:
+        with open(config_file) as f:
             try:
                 object.__setattr__(self, "config", yaml.safe_load(f))
             except Exception:

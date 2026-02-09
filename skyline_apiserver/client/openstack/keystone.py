@@ -158,29 +158,39 @@ async def create_user(user: SignupRequest):
                 )
 
             # 5. Create default security group 'all-internal-allow'
+            # VM 간 통신을 차단하고, 포트포워딩 VM에서만 ingress 허용
             try:
                 sg = neutron.create_security_group(
                     session=system_session,
                     region=CONF.openstack.default_region,
                     name="all-internal-allow",
-                    description="Allow all traffic inside 192.168.10.0/24",
+                    description="Allow traffic only from port forwarding VMs",
                     project_id=new_project_id
                 )
                 
-                # Ingress rule: Allow all internal traffic
-                neutron.create_security_group_rule(
-                    session=system_session,
-                    region=CONF.openstack.default_region,
-                    sg_id=sg["id"],
-                    direction="ingress",
-                    remote_ip_prefix="192.168.10.0/24",
-                    protocol="any",
-                    port_range_min=None,
-                    port_range_max=None,
-                    project_id=new_project_id
-                )
+                # 포트포워딩 VM IP 목록 가져오기
+                portforward_vm_ips = CONF.openstack.portforward_vm_internal_ips
                 
-                # Egress rule: Allow all outbound traffic
+                if portforward_vm_ips:
+                    # 각 포트포워딩 VM IP에 대해 ingress 규칙 생성
+                    for vm_ip in portforward_vm_ips:
+                        neutron.create_security_group_rule(
+                            session=system_session,
+                            region=CONF.openstack.default_region,
+                            sg_id=sg["id"],
+                            direction="ingress",
+                            remote_ip_prefix=f"{vm_ip}/32",  # 해당 IP만 허용
+                            protocol="any",
+                            port_range_min=None,
+                            port_range_max=None,
+                            project_id=new_project_id
+                        )
+                    LOG.info(f"Created ingress rules for port forwarding VMs: {portforward_vm_ips}")
+                else:
+                    # 포트포워딩 VM IP가 설정되지 않은 경우 경고
+                    LOG.warning("portforward_vm_internal_ips is not configured. VM isolation may not work correctly.")
+                
+                # Egress rule: Allow all outbound traffic (외부망 접근 허용)
                 neutron.create_security_group_rule(
                     session=system_session,
                     region=CONF.openstack.default_region,

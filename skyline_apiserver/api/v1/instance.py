@@ -81,6 +81,14 @@ def setup_instance_networking(
         # Portforward 서비스 API URL (환경변수 또는 기본값)
         portforward_api_url = CONF.openstack.portforward_api_url or "http://localhost:8080"
         
+        # Authorization 키 가져오기
+        auth_key = getattr(CONF.openstack, 'portforward_authorization_key', None)
+        
+        # HTTP 헤더 준비
+        headers = {"Content-Type": "application/json"}
+        if auth_key:
+            headers["Authorization"] = f"Bearer {auth_key}"
+        
         # 1. SSH Port Forwarding (Automatic) - 외부 portforward API 호출
         try:
             ssh_payload = {
@@ -97,7 +105,7 @@ def setup_instance_networking(
                 response = client.post(
                     f"{portforward_api_url}/portforward",
                     json=ssh_payload,
-                    headers={"Content-Type": "application/json"}
+                    headers=headers
                 )
                 
                 if response.status_code == 201:
@@ -130,7 +138,7 @@ def setup_instance_networking(
                         response = client.post(
                             f"{portforward_api_url}/portforward",
                             json=port_payload,
-                            headers={"Content-Type": "application/json"}
+                            headers=headers
                         )
                         
                         if response.status_code == 201:
