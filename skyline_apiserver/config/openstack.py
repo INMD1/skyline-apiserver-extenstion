@@ -284,6 +284,13 @@ portforward_authorization_key = Opt(
     default=None,
 )
 
+portforward_vm_internal_ips = Opt(
+    name="portforward_vm_internal_ips",
+    description="List of internal IP addresses of the port forwarding VM. Only these IPs can communicate with user VMs.",
+    schema=List[StrictStr],
+    default=[],
+)
+
 nova_quota_instances = Opt(
     name="nova_quota_instances",
     description="Quota of instances for new projects.",
@@ -353,6 +360,7 @@ ALL_OPTS = (
     port_forwarding_limit,
     portforward_api_url,
     portforward_authorization_key,
+    portforward_vm_internal_ips,
     nova_quota_instances,
     nova_quota_cores,
     nova_quota_ram,
