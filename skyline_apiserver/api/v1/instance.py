@@ -162,6 +162,21 @@ def create_instance(
 ):
     session = utils.generate_session(profile)
 
+    # 중복 이름 체크: 같은 프로젝트 내에서 동일한 이름의 인스턴스가 있는지 확인
+    existing_servers = nova.list_servers(
+        profile=profile,
+        session=session,
+        global_request_id="",
+        search_opts={"name": f"^{instance.name}$", "project_id": profile.project.id},
+    )
+    for server in existing_servers:
+        if server.name == instance.name:
+            LOG.warning(f"[인스턴스 생성 거부] 중복 이름: '{instance.name}', 사용자: {profile.user.name}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"이미 동일한 이름의 인스턴스가 존재합니다: '{instance.name}'",
+            )
+
     # 인스턴스 요청을 DB 같은 데 먼저 기록 (id 미리 생성)
     request_id = str(uuid.uuid4())
     LOG.info(f"[인스턴스 생성] 사용자: {profile.user.name}, 프로젝트: {profile.project.name}, 요청ID: {request_id}, 인스턴스명: {instance.name}")
@@ -181,8 +196,8 @@ def create_instance(
         _provision_instance, session, profile, instance, request_id
     )
 
-    # 202 Accepted 와 요청 ID 반환
-    return {"request_id": request_id, "status": "PENDING"}
+    # 202 Accepted 와 요청 ID, 인스턴스 이름 반환
+    return {"request_id": request_id, "status": "PENDING", "instance_name": instance.name}
 
 
 def _provision_instance(session, profile, instance: InstanceCreate, request_id: str):
