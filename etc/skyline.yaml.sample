@@ -58,9 +58,6 @@ openstack:
     orchestration: heat
     placement: placement
     sharev2: manilav2
-  shared_floating_ip_project_id: ''
-  ssh_floating_ip_id: ''
-  portforward_floating_ip_ids: []
   portforward_authorization_key: ''  # 포트포워딩 API 인증 키
   sso_enabled: false
   sso_protocols:

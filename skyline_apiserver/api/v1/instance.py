@@ -55,15 +55,41 @@ def setup_instance_networking(
     profile: schemas.Profile,
     additional_ports: Optional[List[PortForwardingRule]],
 ):
-    """인스턴스 생성 후 SSH 포트포워딩을 자동 설정합니다."""
+    """인스턴스 생성 후 SSH 포트포워딩을 자동 설정합니다.
+    인스턴스가 ACTIVE 상태가 될 때까지 대기한 후 포트포워딩을 진행합니다."""
     import httpx
     
     session = utils.generate_session(profile)
     
     try:
-        # VM의 Internal IP 가져오기 (준비될 때까지 대기)
+        # 1. 인스턴스가 ACTIVE 상태가 될 때까지 대기 (최대 10분)
+        LOG.info(f"[네트워크] 서버 {server_id} ACTIVE 상태 대기 시작")
+        instance_active = False
+        for _ in range(60):  # 최대 10분 대기 (60 * 10초)
+            try:
+                server = nova.get_server(session, profile, server_id)
+                server_status = server.status
+                LOG.info(f"[네트워크] 서버 {server_id} 현재 상태: {server_status}")
+                if server_status == "ACTIVE":
+                    instance_active = True
+                    break
+                elif server_status == "ERROR":
+                    LOG.error(f"[네트워크] 서버 {server_id} 상태가 ERROR입니다. 포트포워딩 중단.")
+                    return
+            except Exception as e:
+                LOG.warning(f"[네트워크] 서버 {server_id} 상태 확인 실패: {e}")
+            time.sleep(10)
+        
+        if not instance_active:
+            LOG.error(f"[네트워크] 서버 {server_id}가 10분 내에 ACTIVE 상태가 되지 않았습니다. 포트포워딩 중단.")
+            return
+        
+        LOG.info(f"[네트워크] 서버 {server_id} ACTIVE 상태 확인 완료. 인터페이스 준비 대기 (추가 10초)")
+        time.sleep(10)  # 인터페이스가 완전히 준비될 때까지 추가 대기
+        
+        # 2. VM의 Internal IP 가져오기
         internal_ip = None
-        for _ in range(30):  # 최대 5분 대기
+        for _ in range(10):  # 최대 100초 대기
             try:
                 internal_ip = nova.get_server_internal_ip(session, profile, server_id)
                 if internal_ip:
@@ -335,40 +361,18 @@ def get_port_forwarding_stats(
         system_session = get_system_session()
         nc = utils.neutron_client(session=system_session, region=profile.region)
         
-        # 설정된 포트포워딩 IP 목록
-        configured_fip_ids = CONF.openstack.portforward_floating_ip_ids
-        
         total_port_forwardings = 0
         user_port_forwardings = []
-        all_pfs_found = []  # 디버그용: 모든 포트포워딩
         
-        # 설정된 floating IP들에서 포트포워딩 조회
-        for fip_id_or_ip in configured_fip_ids:
+        # 모든 floating IP에서 포트포워딩 조회
+        all_fips = nc.list_floatingips().get("floatingips", [])
+        for fip in all_fips:
             try:
-                # UUID 형식인지 확인
-                if len(fip_id_or_ip) == 36 and fip_id_or_ip.count('-') == 4:
-                    fip = nc.show_floatingip(fip_id_or_ip)["floatingip"]
-                else:
-                    # IP 주소로 검색
-                    all_fips = nc.list_floatingips().get("floatingips", [])
-                    fip = None
-                    for f in all_fips:
-                        if f.get("floating_ip_address") == fip_id_or_ip:
-                            fip = f
-                            break
-                    if not fip:
-                        continue
-                
                 # 해당 floating IP의 포트포워딩 조회
                 pfs = nc.list_port_forwardings(floatingip=fip["id"]).get("port_forwardings", [])
                 
                 for pf in pfs:
                     internal_ip = pf.get("internal_ip_address")
-                    all_pfs_found.append({
-                        "fip": fip["floating_ip_address"],
-                        "internal_ip": internal_ip,
-                        "external_port": pf.get("external_port"),
-                    })
                     # 현재 사용자의 VM IP인 경우만 카운트
                     if internal_ip in user_internal_ips:
                         total_port_forwardings += 1
@@ -381,8 +385,7 @@ def get_port_forwarding_stats(
                             "external_port": pf.get("external_port"),
                             "protocol": pf.get("protocol"),
                         })
-            except Exception as e:
-                all_pfs_found.append({"error": str(e), "fip": fip_id_or_ip})
+            except Exception:
                 continue
         
         return {
@@ -443,8 +446,10 @@ def add_port_forwarding(
                         detail=f"Floating IP not found: {pf_request.floating_ip}"
                     )
         else:
-            # 설정 파일에서 자동 선택
-            fip = neutron.find_portforward_floating_ip(session, profile.region)
+            raise HTTPException(
+                status_code=400,
+                detail="floating_ip is required. Please specify a floating IP address or UUID."
+            )
         
         # floatingip_id는 UUID여야 함 (IP 주소 아님!)
         fip_id = fip["id"]
@@ -559,19 +564,37 @@ def delete_instance(
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
     """
-    인스턴스를 삭제합니다. 연결된 볼륨도 함께 삭제됩니다.
+    인스턴스를 삭제합니다. 연결된 볼륨과 포트포워딩 규칙도 함께 삭제됩니다.
     """
+    from skyline_apiserver.client import portforward_client
+    
     session = utils.generate_session(profile)
     
     try:
-        # 0. 포트포워딩 규칙 정리 (먼저 수행)
+        # 0-a. 외부 포트포워딩 서비스 규칙 정리 (외부 Proxy VM 서비스)
+        try:
+            ext_pfs = portforward_client.get_portforwardings_by_vm(instance_id)
+            if ext_pfs:
+                LOG.info(f"[외부 포트포워딩 정리] 인스턴스 {instance_id} 관련 외부 규칙 {len(ext_pfs)}개 삭제 시작")
+                for ext_pf in ext_pfs:
+                    try:
+                        rule_id = ext_pf.get("id") or ext_pf.get("rule_id")
+                        if rule_id:
+                            portforward_client.delete_portforwarding(rule_id)
+                            LOG.info(f"[외부 포트포워딩 삭제 완료] rule_id: {rule_id}")
+                    except Exception as ext_err:
+                        LOG.warning(f"[외부 포트포워딩 삭제 실패] rule_id: {ext_pf.get('id')}, 오류: {ext_err}")
+                LOG.info(f"[외부 포트포워딩 정리] 완료")
+        except Exception as e:
+            LOG.warning(f"인스턴스 삭제 전 외부 포트포워딩 정리 중 오류 발생: {e}")
+
+        # 0-b. OpenStack Neutron 포트포워딩 규칙 정리
         try:
             internal_ip = nova.get_server_internal_ip(session, profile, instance_id)
             if internal_ip:
                 pfs = neutron.get_port_forwardings_by_internal_ip(session, profile.region, internal_ip)
                 if pfs:
-                    LOG.info(f"[포트포워딩 정리] 인스턴스 {instance_id} ({internal_ip}) 관련 규칙 {len(pfs)}개 삭제 시작")
-                    # 시스템 세션으로 삭제
+                    LOG.info(f"[Neutron 포트포워딩 정리] 인스턴스 {instance_id} ({internal_ip}) 관련 규칙 {len(pfs)}개 삭제 시작")
                     from skyline_apiserver.client.utils import get_system_session
                     system_session = get_system_session()
                     
@@ -584,10 +607,10 @@ def delete_instance(
                                 pf_id=pf["id"]
                             )
                         except Exception as ignore:
-                            LOG.warning(f"포트포워딩 규칙 삭제 실패 (ID: {pf.get('id')}): {ignore}")
-                    LOG.info(f"[포트포워딩 정리] 완료")
+                            LOG.warning(f"Neutron 포트포워딩 규칙 삭제 실패 (ID: {pf.get('id')}): {ignore}")
+                    LOG.info(f"[Neutron 포트포워딩 정리] 완료")
         except Exception as e:
-             LOG.warning(f"인스턴스 삭제 전 포트포워딩 정리 중 오류 발생: {e}")
+            LOG.warning(f"인스턴스 삭제 전 Neutron 포트포워딩 정리 중 오류 발생: {e}")
 
         # 1. 인스턴스에 연결된 볼륨 목록 가져오기
         attached_volumes = nova.get_server_volumes(session, profile, instance_id)
