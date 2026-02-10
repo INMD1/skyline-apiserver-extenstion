@@ -747,6 +747,31 @@ DEBUG:skyline_apiserver:Request path: /api/v1/instances
 
 ---
 
+## 📝 변경 이력
+
+### 2026-02-10: Floating IP 설정 필드 제거
+
+포트포워딩이 외부 API (`portforward_api_url`)를 통해 할당되도록 변경됨에 따라, 아래 설정 필드와 관련 코드가 **삭제**되었습니다:
+
+| 삭제된 설정 | 설명 |
+|-------------|------|
+| `shared_floating_ip_project_id` | 공유 Floating IP 프로젝트 ID |
+| `portforward_floating_ip_ids` | 포트포워딩용 Floating IP 목록 |
+| `ssh_floating_ip_id` | SSH 포트포워딩용 Floating IP ID |
+
+**삭제된 함수 (`neutron.py`):**
+- `find_floating_ip_for_ssh()` — SSH Floating IP 조회
+- `find_available_floating_ip()` — 공유 프로젝트에서 Floating IP 조회
+- `find_portforward_floating_ip()` — 랜덤 Floating IP 선택
+
+**변경된 동작:**
+- `POST /api/v1/port_forwardings` — `floating_ip` 파라미터가 **필수**로 변경 (자동 선택 제거)
+- `GET /api/v1/port_forwardings/stats` — 설정 목록 대신 모든 Floating IP에서 포트포워딩 조회
+
+> ⚠️ `skyline.yaml`에서 위 3개 설정을 사용 중이라면 제거해주세요. 남아 있어도 무시되지만 혼란을 방지하기 위해 삭제를 권장합니다.
+
+---
+
 ## 📄 라이선스
 
 Apache License 2.0 - 자세한 내용은 [LICENSE](./LICENSE) 파일을 참조하세요.
