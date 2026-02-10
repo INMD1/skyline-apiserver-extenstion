@@ -242,26 +242,6 @@ admin_user_id = Opt(
     default="",
 )
 
-ssh_floating_ip_id = Opt(
-    name="ssh_floating_ip_id",
-    description="The ID of the floating IP to be used for SSH port forwarding.",
-    schema=StrictStr,
-    default="",
-)
-
-portforward_floating_ip_ids = Opt(
-    name="portforward_floating_ip_ids",
-    description="List of floating IP IDs to be used for port forwarding (selected randomly).",
-    schema=List[StrictStr],
-    default=[],
-)
-
-shared_floating_ip_project_id = Opt(
-    name="shared_floating_ip_project_id",
-    description="The ID of the project for sourcing shared floating IPs.",
-    schema=StrictStr,
-    default="",
-)
 
 port_forwarding_limit = Opt(
     name="port_forwarding_limit",
@@ -354,9 +334,6 @@ ALL_OPTS = (
     admin_role_id,
     member_role_id,
     admin_user_id,
-    ssh_floating_ip_id,
-    portforward_floating_ip_ids,
-    shared_floating_ip_project_id,
     port_forwarding_limit,
     portforward_api_url,
     portforward_authorization_key,
