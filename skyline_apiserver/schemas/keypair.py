@@ -1,4 +1,7 @@
+from __future__ import annotations
+from typing import List, Optional
 from datetime import datetime
+from pydantic import BaseModel
 
 class Keypair(BaseModel):
     name: str
