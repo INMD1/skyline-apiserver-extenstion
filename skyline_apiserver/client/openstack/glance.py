@@ -53,3 +53,28 @@ def list_images(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+def get_image(
+    session: Session,
+    region: str,
+    image_id: str,
+    global_request_id: Optional[str] = None,
+) -> Any:
+    try:
+        gc = utils.glance_client(
+            session=session,
+            region=region,
+            global_request_id=global_request_id,
+        )
+        return gc.images.get(image_id)
+    except Unauthorized as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

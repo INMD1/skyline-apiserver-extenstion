@@ -1,12 +1,11 @@
-from __future__ import annotations
-from typing import List, Optional
-from pydantic import BaseModel
+from datetime import datetime
 
 class Keypair(BaseModel):
     name: str
     fingerprint: str
     public_key: str
     type: str
+    created_at: Optional[datetime] = None
 
 class KeypairDetail(Keypair):
     private_key: Optional[str] = None

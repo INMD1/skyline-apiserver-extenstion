@@ -326,6 +326,34 @@ def get_instance(
             server_dict["port_forwardings"] = port_forwardings
         else:
             server_dict["port_forwardings"] = []
+
+        # OS 정보 추가 (Image Metadata에서 추출)
+        if server.image:
+            try:
+                # server.image는 dict가 아니라 객체일 수도 있고, ID만 있을 수도 있음.
+                # 보통 novaclient 변환 시 id만 있거나 dict로 일부 정보만 있음.
+                # glance로 상세 조회 필요
+                image_id = server.image.get("id") if isinstance(server.image, dict) else server.image
+                
+                from skyline_apiserver.client.openstack import glance
+                image_details = glance.get_image(session, profile.region, image_id)
+                
+                # OS 정보 추출 우선순위:
+                # 1. os_distro (예: ubuntu, centos)
+                # 2. os_type (예: linux, windows)
+                # 3. name (예: ubuntu-20.04)
+                os_name = getattr(image_details, "os_distro", None)
+                if not os_name:
+                     os_name = getattr(image_details, "os_type", None)
+                if not os_name:
+                    os_name = getattr(image_details, "name", "Unknown")
+
+                server_dict["os_name"] = os_name
+            except Exception as e:
+                LOG.warning(f"Failed to get OS info for instance {instance_id}: {e}")
+                server_dict["os_name"] = "Unknown"
+        else:
+            server_dict["os_name"] = "Unknown"
         
         return server_dict
     except Exception as e:
