@@ -108,6 +108,7 @@ def create_instance_from_volume(
     net_id: str,
     key_name: str,
     security_groups: Optional[List[str]] = None,
+    meta: Optional[Dict[str, str]] = None,
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
@@ -116,8 +117,9 @@ def create_instance_from_volume(
         flavor=flavor_id,
         nics=[{"net-id": net_id}],
         key_name=key_name,
-        block_device_mapping={'vda': f'{volume_id}:::0'},
+        block_device_mapping={"vda": f"{volume_id}:::0"},
         security_groups=security_groups,
+        meta=meta,
     )
     return server
 
@@ -131,6 +133,7 @@ def create_instance_with_network(
     net_id: str,
     key_name: str,
     security_groups: Optional[List[str]] = None,
+    meta: Optional[Dict[str, str]] = None,
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
@@ -140,12 +143,14 @@ def create_instance_with_network(
         nics=[{"net-id": net_id}],
         key_name=key_name,
         security_groups=security_groups,
+        meta=str(meta),
     )
     # TODO: Wait for server to be active
     return server
 
 
 import time
+
 
 def get_server_internal_ip(
     session: Session, profile: schemas.Profile, server_id: str
@@ -206,7 +211,6 @@ def get_console_url(
     return console
 
 
-
 def list_flavors(
     session: Session,
     region: str,
@@ -247,33 +251,71 @@ def get_flavor(
         )
 
 
-def list_keypairs(session: Session, region: str, global_request_id: Optional[str] = None) -> Any:
+def list_keypairs(
+    session: Session, region: str, global_request_id: Optional[str] = None
+) -> Any:
     try:
-        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        nc = utils.nova_client(
+            region=region, session=session, global_request_id=global_request_id
+        )
         return nc.keypairs.list()
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
-def get_keypair(session: Session, region: str, keypair_name: str, global_request_id: Optional[str] = None) -> Any:
+
+def get_keypair(
+    session: Session,
+    region: str,
+    keypair_name: str,
+    global_request_id: Optional[str] = None,
+) -> Any:
     try:
-        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        nc = utils.nova_client(
+            region=region, session=session, global_request_id=global_request_id
+        )
         return nc.keypairs.get(keypair_name)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
-def create_keypair(session: Session, region: str, name: str, public_key: Optional[str] = None, key_type: str = 'ssh', global_request_id: Optional[str] = None) -> Any:
+
+def create_keypair(
+    session: Session,
+    region: str,
+    name: str,
+    public_key: Optional[str] = None,
+    key_type: str = "ssh",
+    global_request_id: Optional[str] = None,
+) -> Any:
     try:
-        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        nc = utils.nova_client(
+            region=region, session=session, global_request_id=global_request_id
+        )
         return nc.keypairs.create(name, public_key=public_key, key_type=key_type)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
-def delete_keypair(session: Session, region: str, keypair_name: str, global_request_id: Optional[str] = None) -> None:
+
+def delete_keypair(
+    session: Session,
+    region: str,
+    keypair_name: str,
+    global_request_id: Optional[str] = None,
+) -> None:
     try:
-        nc = utils.nova_client(region=region, session=session, global_request_id=global_request_id)
+        nc = utils.nova_client(
+            region=region, session=session, global_request_id=global_request_id
+        )
         nc.keypairs.delete(keypair_name)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 def attach_volume_to_server(
