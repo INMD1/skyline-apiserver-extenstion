@@ -1,7 +1,7 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 
 from skyline_apiserver import schemas
@@ -17,9 +17,9 @@ LOG = logging.getLogger(__name__)
 
 
 class PortForwardingRule(BaseModel):
-    internal_port: int
-    external_port: int
-    protocol: str = "tcp"
+    internal_port: int = Field(..., ge=1, le=65535)
+    external_port: int = Field(..., ge=1, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
 
 
 class InstanceCreate(BaseModel):
@@ -30,13 +30,14 @@ class InstanceCreate(BaseModel):
     network_id: str
     volume_size: Optional[int] = None
     additional_ports: Optional[List[PortForwardingRule]] = None
+    os_name: Optional[str] = None
 
 
 class PortForwardingAdd(BaseModel):
     internal_ip: str
-    internal_port: int
-    external_port: int | None = None
-    protocol: str = "tcp"
+    internal_port: int = Field(..., ge=1, le=65535)
+    external_port: int | None = Field(None, ge=1, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
     floating_ip: str | None = None  # Floating IP 주소 또는 UUID (선택적)
 
 
@@ -48,7 +49,6 @@ class PortForwardingDelete(BaseModel):
 router = APIRouter()
 
 
-
 def setup_instance_networking(
     server_id: str,
     server_name: str,
@@ -58,9 +58,9 @@ def setup_instance_networking(
     """인스턴스 생성 후 SSH 포트포워딩을 자동 설정합니다.
     인스턴스가 ACTIVE 상태가 될 때까지 대기한 후 포트포워딩을 진행합니다."""
     import httpx
-    
+
     session = utils.generate_session(profile)
-    
+
     try:
         # 1. 인스턴스가 ACTIVE 상태가 될 때까지 대기 (최대 10분)
         LOG.info(f"[네트워크] 서버 {server_id} ACTIVE 상태 대기 시작")
@@ -74,19 +74,25 @@ def setup_instance_networking(
                     instance_active = True
                     break
                 elif server_status == "ERROR":
-                    LOG.error(f"[네트워크] 서버 {server_id} 상태가 ERROR입니다. 포트포워딩 중단.")
+                    LOG.error(
+                        f"[네트워크] 서버 {server_id} 상태가 ERROR입니다. 포트포워딩 중단."
+                    )
                     return
             except Exception as e:
                 LOG.warning(f"[네트워크] 서버 {server_id} 상태 확인 실패: {e}")
             time.sleep(10)
-        
+
         if not instance_active:
-            LOG.error(f"[네트워크] 서버 {server_id}가 10분 내에 ACTIVE 상태가 되지 않았습니다. 포트포워딩 중단.")
+            LOG.error(
+                f"[네트워크] 서버 {server_id}가 10분 내에 ACTIVE 상태가 되지 않았습니다. 포트포워딩 중단."
+            )
             return
-        
-        LOG.info(f"[네트워크] 서버 {server_id} ACTIVE 상태 확인 완료. 인터페이스 준비 대기 (추가 10초)")
+
+        LOG.info(
+            f"[네트워크] 서버 {server_id} ACTIVE 상태 확인 완료. 인터페이스 준비 대기 (추가 10초)"
+        )
         time.sleep(10)  # 인터페이스가 완전히 준비될 때까지 추가 대기
-        
+
         # 2. VM의 Internal IP 가져오기
         internal_ip = None
         for _ in range(10):  # 최대 100초 대기
@@ -97,24 +103,26 @@ def setup_instance_networking(
             except Exception:
                 pass
             time.sleep(10)
-        
+
         if not internal_ip:
             LOG.error(f"[네트워크] 서버 {server_id}의 Internal IP를 찾을 수 없습니다.")
             return
-        
+
         LOG.info(f"[네트워크] 서버 {server_id} Internal IP: {internal_ip}")
-        
+
         # Portforward 서비스 API URL (환경변수 또는 기본값)
-        portforward_api_url = CONF.openstack.portforward_api_url or "http://localhost:8080"
-        
+        portforward_api_url = (
+            CONF.openstack.portforward_api_url or "http://localhost:8080"
+        )
+
         # Authorization 키 가져오기
-        auth_key = getattr(CONF.openstack, 'portforward_authorization_key', None)
-        
+        auth_key = getattr(CONF.openstack, "portforward_authorization_key", None)
+
         # HTTP 헤더 준비
         headers = {"Content-Type": "application/json"}
         if auth_key:
             headers["Authorization"] = f"Bearer {auth_key}"
-        
+
         # 1. SSH Port Forwarding (Automatic) - 외부 portforward API 호출
         try:
             ssh_payload = {
@@ -124,24 +132,28 @@ def setup_instance_networking(
                 "user_vm_internal_ip": internal_ip,
                 "user_vm_internal_port": 22,
                 "service_type": "ssh",  # SSH 전용 IP에서 할당
-                "protocol": "tcp"
+                "protocol": "tcp",
             }
-            
+
             with httpx.Client(timeout=30.0) as client:
                 response = client.post(
                     f"{portforward_api_url}/portforward",
                     json=ssh_payload,
-                    headers=headers
+                    headers=headers,
                 )
-                
+
                 if response.status_code == 201:
                     result = response.json()
-                    LOG.info(f"[SSH 포트포워딩 생성 완료] 서버: {server_id}, "
-                            f"외부: {result.get('proxy_external_ip')}:{result.get('proxy_external_port')} -> "
-                            f"내부: {internal_ip}:22")
+                    LOG.info(
+                        f"[SSH 포트포워딩 생성 완료] 서버: {server_id}, "
+                        f"외부: {result.get('proxy_external_ip')}:{result.get('proxy_external_port')} -> "
+                        f"내부: {internal_ip}:22"
+                    )
                 else:
-                    LOG.warning(f"[SSH 포트포워딩 생성 실패] 상태: {response.status_code}, 응답: {response.text}")
-                    
+                    LOG.warning(
+                        f"[SSH 포트포워딩 생성 실패] 상태: {response.status_code}, 응답: {response.text}"
+                    )
+
         except Exception as e:
             LOG.warning(f"[SSH 포트포워딩 생성 오류] 서버: {server_id}, 오류: {e}")
 
@@ -155,26 +167,34 @@ def setup_instance_networking(
                         "user_vm_name": server_name,
                         "user_vm_internal_ip": internal_ip,
                         "user_vm_internal_port": port.internal_port,
-                        "proxy_external_port": port.external_port if port.external_port else None,
+                        "proxy_external_port": port.external_port
+                        if port.external_port
+                        else None,
                         "service_type": "other",  # 일반 포트용 IP에서 할당
-                        "protocol": port.protocol
+                        "protocol": port.protocol,
                     }
-                    
+
                     with httpx.Client(timeout=30.0) as client:
                         response = client.post(
                             f"{portforward_api_url}/portforward",
                             json=port_payload,
-                            headers=headers
+                            headers=headers,
                         )
-                        
+
                         if response.status_code == 201:
                             result = response.json()
-                            LOG.info(f"[추가 포트포워딩 생성 완료] 서버: {server_id}, 포트: {port.internal_port}")
+                            LOG.info(
+                                f"[추가 포트포워딩 생성 완료] 서버: {server_id}, 포트: {port.internal_port}"
+                            )
                         else:
-                            LOG.warning(f"[추가 포트포워딩 생성 실패] 포트: {port.internal_port}, 상태: {response.status_code}")
-                            
+                            LOG.warning(
+                                f"[추가 포트포워딩 생성 실패] 포트: {port.internal_port}, 상태: {response.status_code}"
+                            )
+
                 except Exception as e:
-                    LOG.warning(f"[추가 포트포워딩 생성 오류] 포트: {port.internal_port}, 오류: {e}")
+                    LOG.warning(
+                        f"[추가 포트포워딩 생성 오류] 포트: {port.internal_port}, 오류: {e}"
+                    )
 
     except Exception as e:
         LOG.error(f"[네트워크] 서버 {server_id} 네트워크 설정 실패: {e}")
@@ -197,7 +217,9 @@ def create_instance(
     )
     for server in existing_servers:
         if server.name == instance.name:
-            LOG.warning(f"[인스턴스 생성 거부] 중복 이름: '{instance.name}', 사용자: {profile.user.name}")
+            LOG.warning(
+                f"[인스턴스 생성 거부] 중복 이름: '{instance.name}', 사용자: {profile.user.name}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"이미 동일한 이름의 인스턴스가 존재합니다: '{instance.name}'",
@@ -205,8 +227,10 @@ def create_instance(
 
     # 인스턴스 요청을 DB 같은 데 먼저 기록 (id 미리 생성)
     request_id = str(uuid.uuid4())
-    LOG.info(f"[인스턴스 생성] 사용자: {profile.user.name}, 프로젝트: {profile.project.name}, 요청ID: {request_id}, 인스턴스명: {instance.name}")
-    
+    LOG.info(
+        f"[인스턴스 생성] 사용자: {profile.user.name}, 프로젝트: {profile.project.name}, 요청ID: {request_id}, 인스턴스명: {instance.name}"
+    )
+
     # DB에 활동 기록
     db_api.create_activity_record(
         user_id=profile.user.id,
@@ -223,7 +247,11 @@ def create_instance(
     )
 
     # 202 Accepted 와 요청 ID, 인스턴스 이름 반환
-    return {"request_id": request_id, "status": "PENDING", "instance_name": instance.name}
+    return {
+        "request_id": request_id,
+        "status": "PENDING",
+        "instance_name": instance.name,
+    }
 
 
 def _provision_instance(session, profile, instance: InstanceCreate, request_id: str):
@@ -258,8 +286,11 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
                 net_id=instance.network_id,
                 key_name=instance.key_name,
                 security_groups=["all-internal-allow"],
+                meta={"os_name": instance.os_name} if instance.os_name else None,
             )
-            LOG.info(f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}, 볼륨ID: {volume.id}")
+            LOG.info(
+                f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}, 볼륨ID: {volume.id}"
+            )
         else:
             if not instance.image_id:
                 raise ValueError("Image ID required when not booting from a volume.")
@@ -273,11 +304,16 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
                 net_id=instance.network_id,
                 key_name=instance.key_name,
                 security_groups=["all-internal-allow"],
+                meta={"os_name": instance.os_name} if instance.os_name else None,
             )
-            LOG.info(f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}")
+            LOG.info(
+                f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}"
+            )
 
         # 추가 네트워크 세팅도 백그라운드로
-        setup_instance_networking(server.id, instance.name, profile, instance.additional_ports)
+        setup_instance_networking(
+            server.id, instance.name, profile, instance.additional_ports
+        )
 
         # 성공 기록 (DB 업데이트 같은 것)
         LOG.info(f"[프로비저닝 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}")
@@ -297,7 +333,7 @@ def get_instance(
     session = utils.generate_session(profile)
     try:
         server = nova.get_server(session, profile, instance_id)
-        
+
         # Convert to dict for manipulation
         server_dict = {
             "id": server.id,
@@ -309,7 +345,7 @@ def get_instance(
             "image": server.image if server.image != "" else None,
             "addresses": server.addresses,
         }
-        
+
         # Get internal IP
         internal_ip = None
         for network in server.addresses:
@@ -319,18 +355,21 @@ def get_instance(
                     break
             if internal_ip:
                 break
-        
-        # Add port forwarding information
-        if internal_ip:
-            port_forwardings = neutron.get_port_forwardings_by_internal_ip(session, profile.region, internal_ip)
-            server_dict["port_forwardings"] = port_forwardings
+
+        # OS 정보 추가 
+        if server.metadata:
+            try:
+                server_dict["os_name"] = server.metadata.get("os_name")
+            except Exception as e:
+                LOG.warning(f"Failed to get OS info for instance {instance_id}: {e}")
+                server_dict["os_name"] = "Unknown"
         else:
-            server_dict["port_forwardings"] = []
-        
+            server_dict["os_name"] = "Unknown"
+
         return server_dict
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        LOG.error(f"Failed to get instance {instance_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get instance")
 
 
 @router.get("/port_forwardings/stats")
@@ -340,13 +379,13 @@ def get_port_forwarding_stats(
     """현재 사용자의 VM에서 사용 중인 포트포워딩 통계를 반환합니다."""
     try:
         session = utils.generate_session(profile)
-        
+
         # 현재 사용자의 VM 목록에서 Internal IP 수집
         servers = nova.list_servers(
             profile=profile,
             session=session,
             global_request_id="",
-            search_opts={"project_id": profile.project.id}
+            search_opts={"project_id": profile.project.id},
         )
         user_internal_ips = set()
         for server in servers:
@@ -355,49 +394,56 @@ def get_port_forwarding_stats(
                     if ip_info.get("OS-EXT-IPS:type") == "fixed":
                         user_internal_ips.add(ip_info["addr"])
 
-        
         # 시스템 세션으로 포트포워딩 조회
         from skyline_apiserver.client.utils import get_system_session
+
         system_session = get_system_session()
         nc = utils.neutron_client(session=system_session, region=profile.region)
-        
+
         total_port_forwardings = 0
         user_port_forwardings = []
-        
+
         # 모든 floating IP에서 포트포워딩 조회
         all_fips = nc.list_floatingips().get("floatingips", [])
         for fip in all_fips:
             try:
                 # 해당 floating IP의 포트포워딩 조회
-                pfs = nc.list_port_forwardings(floatingip=fip["id"]).get("port_forwardings", [])
-                
+                pfs = nc.list_port_forwardings(floatingip=fip["id"]).get(
+                    "port_forwardings", []
+                )
+
                 for pf in pfs:
                     internal_ip = pf.get("internal_ip_address")
                     # 현재 사용자의 VM IP인 경우만 카운트
                     if internal_ip in user_internal_ips:
                         total_port_forwardings += 1
-                        user_port_forwardings.append({
-                            "id": pf.get("id"),
-                            "floating_ip_id": fip["id"],
-                            "floating_ip_address": fip["floating_ip_address"],
-                            "internal_ip_address": internal_ip,
-                            "internal_port": pf.get("internal_port"),
-                            "external_port": pf.get("external_port"),
-                            "protocol": pf.get("protocol"),
-                        })
+                        user_port_forwardings.append(
+                            {
+                                "id": pf.get("id"),
+                                "floating_ip_id": fip["id"],
+                                "floating_ip_address": fip["floating_ip_address"],
+                                "internal_ip_address": internal_ip,
+                                "internal_port": pf.get("internal_port"),
+                                "external_port": pf.get("external_port"),
+                                "protocol": pf.get("protocol"),
+                            }
+                        )
             except Exception:
                 continue
-        
+
         return {
             "total_count": total_port_forwardings,
             "limit": CONF.openstack.port_forwarding_limit,
-            "remaining": max(0, CONF.openstack.port_forwarding_limit - total_port_forwardings),
+            "remaining": max(
+                0, CONF.openstack.port_forwarding_limit - total_port_forwardings
+            ),
             "port_forwardings": user_port_forwardings,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get port forwarding stats: {e}")
-
-
+        LOG.error(f"Failed to get port forwarding stats: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to get port forwarding stats"
+        )
 
 
 @router.post("/port_forwardings")
@@ -428,9 +474,12 @@ def add_port_forwarding(
         if pf_request.floating_ip:
             # 사용자가 floating IP를 직접 지정한 경우
             nc = utils.neutron_client(session=session, region=profile.region)
-            
+
             # UUID 형식인지 IP 주소인지 확인
-            if len(pf_request.floating_ip) == 36 and pf_request.floating_ip.count('-') == 4:
+            if (
+                len(pf_request.floating_ip) == 36
+                and pf_request.floating_ip.count("-") == 4
+            ):
                 # UUID로 조회
                 fip = nc.show_floatingip(pf_request.floating_ip)["floatingip"]
             else:
@@ -443,21 +492,22 @@ def add_port_forwarding(
                 if not fip:
                     raise HTTPException(
                         status_code=404,
-                        detail=f"Floating IP not found: {pf_request.floating_ip}"
+                        detail=f"Floating IP not found: {pf_request.floating_ip}",
                     )
         else:
             raise HTTPException(
                 status_code=400,
-                detail="floating_ip is required. Please specify a floating IP address or UUID."
+                detail="floating_ip is required. Please specify a floating IP address or UUID.",
             )
-        
+
         # floatingip_id는 UUID여야 함 (IP 주소 아님!)
         fip_id = fip["id"]
 
         # 시스템 세션 사용 (floating IP가 다른 프로젝트에 있을 수 있음)
         from skyline_apiserver.client.utils import get_system_session
+
         system_session = get_system_session()
-        
+
         pf = neutron.create_port_forwarding_rule(
             session=system_session,  # 시스템 세션 사용!
             region=profile.region,
@@ -467,7 +517,7 @@ def add_port_forwarding(
             external_port=pf_request.external_port,  # Can be None for auto-assignment
             protocol=pf_request.protocol,
         )
-        
+
         # 응답에 floating IP 주소 포함
         response = {
             "message": "Port forwarding created successfully",
@@ -478,13 +528,14 @@ def add_port_forwarding(
                 "internal_port": pf.get("internal_port"),
                 "external_port": pf.get("external_port"),
                 "protocol": pf.get("protocol"),
-            }
+            },
         }
         return response
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create port forwarding: {e}")
-
-
+        LOG.error(f"Failed to create port forwarding: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to create port forwarding"
+        )
 
 
 @router.delete("/port_forwardings", status_code=status.HTTP_204_NO_CONTENT)
@@ -502,8 +553,9 @@ def delete_port_forwarding(
         )
         return
     except Exception as e:
+        LOG.error(f"Failed to delete port forwarding: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to delete port forwarding: {e}"
+            status_code=500, detail="Failed to delete port forwarding"
         )
 
 
@@ -530,8 +582,9 @@ def list_instance_port_forwardings(
             "port_forwardings": pfs,
         }
     except Exception as e:
+        LOG.error(f"Failed to list port forwardings for instance {instance_id}: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to list port forwardings: {e}"
+            status_code=500, detail="Failed to list port forwardings"
         )
 
 
@@ -552,8 +605,9 @@ def get_instance_console(
         )
         return console_data
     except Exception as e:
+        LOG.error(f"Failed to get console URL for instance {instance_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get console URL"
         )
 
 
@@ -567,15 +621,17 @@ def delete_instance(
     인스턴스를 삭제합니다. 연결된 볼륨과 포트포워딩 규칙도 함께 삭제됩니다.
     """
     from skyline_apiserver.client import portforward_client
-    
+
     session = utils.generate_session(profile)
-    
+
     try:
         # 0-a. 외부 포트포워딩 서비스 규칙 정리 (외부 Proxy VM 서비스)
         try:
             ext_pfs = portforward_client.get_portforwardings_by_vm(instance_id)
             if ext_pfs:
-                LOG.info(f"[외부 포트포워딩 정리] 인스턴스 {instance_id} 관련 외부 규칙 {len(ext_pfs)}개 삭제 시작")
+                LOG.info(
+                    f"[외부 포트포워딩 정리] 인스턴스 {instance_id} 관련 외부 규칙 {len(ext_pfs)}개 삭제 시작"
+                )
                 for ext_pf in ext_pfs:
                     try:
                         rule_id = ext_pf.get("id") or ext_pf.get("rule_id")
@@ -583,7 +639,9 @@ def delete_instance(
                             portforward_client.delete_portforwarding(rule_id)
                             LOG.info(f"[외부 포트포워딩 삭제 완료] rule_id: {rule_id}")
                     except Exception as ext_err:
-                        LOG.warning(f"[외부 포트포워딩 삭제 실패] rule_id: {ext_pf.get('id')}, 오류: {ext_err}")
+                        LOG.warning(
+                            f"[외부 포트포워딩 삭제 실패] rule_id: {ext_pf.get('id')}, 오류: {ext_err}"
+                        )
                 LOG.info(f"[외부 포트포워딩 정리] 완료")
         except Exception as e:
             LOG.warning(f"인스턴스 삭제 전 외부 포트포워딩 정리 중 오류 발생: {e}")
@@ -592,22 +650,29 @@ def delete_instance(
         try:
             internal_ip = nova.get_server_internal_ip(session, profile, instance_id)
             if internal_ip:
-                pfs = neutron.get_port_forwardings_by_internal_ip(session, profile.region, internal_ip)
+                pfs = neutron.get_port_forwardings_by_internal_ip(
+                    session, profile.region, internal_ip
+                )
                 if pfs:
-                    LOG.info(f"[Neutron 포트포워딩 정리] 인스턴스 {instance_id} ({internal_ip}) 관련 규칙 {len(pfs)}개 삭제 시작")
+                    LOG.info(
+                        f"[Neutron 포트포워딩 정리] 인스턴스 {instance_id} ({internal_ip}) 관련 규칙 {len(pfs)}개 삭제 시작"
+                    )
                     from skyline_apiserver.client.utils import get_system_session
+
                     system_session = get_system_session()
-                    
+
                     for pf in pfs:
                         try:
                             neutron.delete_port_forwarding_rule(
                                 session=system_session,
                                 region=profile.region,
                                 floatingip_id=pf["floating_ip_id"],
-                                pf_id=pf["id"]
+                                pf_id=pf["id"],
                             )
                         except Exception as ignore:
-                            LOG.warning(f"Neutron 포트포워딩 규칙 삭제 실패 (ID: {pf.get('id')}): {ignore}")
+                            LOG.warning(
+                                f"Neutron 포트포워딩 규칙 삭제 실패 (ID: {pf.get('id')}): {ignore}"
+                            )
                     LOG.info(f"[Neutron 포트포워딩 정리] 완료")
         except Exception as e:
             LOG.warning(f"인스턴스 삭제 전 Neutron 포트포워딩 정리 중 오류 발생: {e}")
@@ -615,11 +680,13 @@ def delete_instance(
         # 1. 인스턴스에 연결된 볼륨 목록 가져오기
         attached_volumes = nova.get_server_volumes(session, profile, instance_id)
         volume_ids = [vol.volumeId for vol in attached_volumes]
-        
+
         # 2. 인스턴스 삭제
-        LOG.info(f"[인스턴스 삭제] 사용자: {profile.user.name}, 프로젝트: {profile.project.name}, 인스턴스ID: {instance_id}, 연결된볼륨: {volume_ids}")
+        LOG.info(
+            f"[인스턴스 삭제] 사용자: {profile.user.name}, 프로젝트: {profile.project.name}, 인스턴스ID: {instance_id}, 연결된볼륨: {volume_ids}"
+        )
         nova.delete_server(session, profile, instance_id)
-        
+
         # DB에 활동 기록
         db_api.create_activity_record(
             user_id=profile.user.id,
@@ -629,25 +696,32 @@ def delete_instance(
             status="success",
             token="",  # 보안을 위해 토큰 저장 제거
         )
-        
+
         # 3. 볼륨 삭제는 백그라운드에서 처리 (인스턴스가 완전히 삭제된 후 삭제해야 함)
         if volume_ids:
             background_tasks.add_task(
-                _delete_volumes_after_instance, session, profile, instance_id, volume_ids
+                _delete_volumes_after_instance,
+                session,
+                profile,
+                instance_id,
+                volume_ids,
             )
-        
+
         return
     except Exception as e:
+        LOG.error(f"Failed to delete instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete instance: {e}",
+            detail="Failed to delete instance",
         )
 
 
-def _delete_volumes_after_instance(session, profile, instance_id: str, volume_ids: list):
+def _delete_volumes_after_instance(
+    session, profile, instance_id: str, volume_ids: list
+):
     """인스턴스가 삭제된 후 볼륨을 삭제하는 백그라운드 태스크"""
     import time
-    
+
     # 인스턴스가 완전히 삭제될 때까지 대기 (최대 2분)
     for _ in range(24):
         try:
@@ -657,7 +731,7 @@ def _delete_volumes_after_instance(session, profile, instance_id: str, volume_id
         except:
             # 인스턴스가 삭제됨
             break
-    
+
     # 볼륨이 available 상태가 될 때까지 대기 후 삭제
     for volume_id in volume_ids:
         try:
@@ -671,7 +745,7 @@ def _delete_volumes_after_instance(session, profile, instance_id: str, volume_id
                 except:
                     # 볼륨이 이미 삭제됨
                     break
-            
+
             # 볼륨 삭제
             cinder.delete_volume(session, profile, volume_id)
             LOG.info(f"[볼륨 삭제 완료] 인스턴스ID: {instance_id}, 볼륨ID: {volume_id}")
@@ -700,12 +774,18 @@ def attach_volume(
             server_id=instance_id,
             volume_id=volume_action.volume_id,
         )
-        LOG.info(f"[볼륨 연결] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}, 볼륨ID: {volume_action.volume_id}")
-        return {"message": "Volume attached successfully", "volume_id": volume_action.volume_id}
+        LOG.info(
+            f"[볼륨 연결] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}, 볼륨ID: {volume_action.volume_id}"
+        )
+        return {
+            "message": "Volume attached successfully",
+            "volume_id": volume_action.volume_id,
+        }
     except Exception as e:
+        LOG.error(f"Failed to attach volume {volume_action.volume_id} to instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to attach volume: {e}",
+            detail="Failed to attach volume",
         )
 
 
@@ -726,12 +806,18 @@ def detach_volume(
             server_id=instance_id,
             volume_id=volume_action.volume_id,
         )
-        LOG.info(f"[볼륨 분리] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}, 볼륨ID: {volume_action.volume_id}")
-        return {"message": "Volume detached successfully", "volume_id": volume_action.volume_id}
+        LOG.info(
+            f"[볼륨 분리] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}, 볼륨ID: {volume_action.volume_id}"
+        )
+        return {
+            "message": "Volume detached successfully",
+            "volume_id": volume_action.volume_id,
+        }
     except Exception as e:
+        LOG.error(f"Failed to detach volume {volume_action.volume_id} from instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to detach volume: {e}",
+            detail="Failed to detach volume",
         )
 
 
@@ -746,8 +832,10 @@ def start_instance(
     session = utils.generate_session(profile)
     try:
         nova.start_server(session, profile, instance_id)
-        LOG.info(f"[인스턴스 시작] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}")
-        
+        LOG.info(
+            f"[인스턴스 시작] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}"
+        )
+
         db_api.create_activity_record(
             user_id=profile.user.id,
             project_id=profile.project.id,
@@ -758,9 +846,10 @@ def start_instance(
         )
         return {"message": "Instance started successfully", "instance_id": instance_id}
     except Exception as e:
+        LOG.error(f"Failed to start instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start instance: {e}",
+            detail="Failed to start instance",
         )
 
 
@@ -775,8 +864,10 @@ def stop_instance(
     session = utils.generate_session(profile)
     try:
         nova.stop_server(session, profile, instance_id)
-        LOG.info(f"[인스턴스 정지] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}")
-        
+        LOG.info(
+            f"[인스턴스 정지] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}"
+        )
+
         db_api.create_activity_record(
             user_id=profile.user.id,
             project_id=profile.project.id,
@@ -787,14 +878,15 @@ def stop_instance(
         )
         return {"message": "Instance stopped successfully", "instance_id": instance_id}
     except Exception as e:
+        LOG.error(f"Failed to stop instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to stop instance: {e}",
+            detail="Failed to stop instance",
         )
 
 
 class RebootRequest(BaseModel):
-    reboot_type: str = "SOFT"  # SOFT or HARD
+    reboot_type: Literal["SOFT", "HARD"] = "SOFT"
 
 
 @router.post("/instances/{instance_id}/reboot", status_code=status.HTTP_200_OK)
@@ -809,8 +901,10 @@ def reboot_instance(
     session = utils.generate_session(profile)
     try:
         nova.reboot_server(session, profile, instance_id, reboot_request.reboot_type)
-        LOG.info(f"[인스턴스 재시작] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}, 타입: {reboot_request.reboot_type}")
-        
+        LOG.info(
+            f"[인스턴스 재시작] 사용자: {profile.user.name}, 인스턴스ID: {instance_id}, 타입: {reboot_request.reboot_type}"
+        )
+
         db_api.create_activity_record(
             user_id=profile.user.id,
             project_id=profile.project.id,
@@ -819,9 +913,14 @@ def reboot_instance(
             status="success",
             token="",  # 보안을 위해 토큰 저장 제거
         )
-        return {"message": "Instance rebooted successfully", "instance_id": instance_id, "reboot_type": reboot_request.reboot_type}
+        return {
+            "message": "Instance rebooted successfully",
+            "instance_id": instance_id,
+            "reboot_type": reboot_request.reboot_type,
+        }
     except Exception as e:
+        LOG.error(f"Failed to reboot instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reboot instance: {e}",
+            detail="Failed to reboot instance",
         )

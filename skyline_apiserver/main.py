@@ -51,6 +51,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     policies_setup()
     db_setup()
 
+    # Warn if the default secret key is still in use
+    _DEFAULT_SECRET_KEY = "aCtmgbcUqYUy_HNVg5BDXCaeJgJQzHJXwqbXr0Nmb2o"
+    if CONF.default.secret_key == _DEFAULT_SECRET_KEY:
+        LOG.warning(
+            "SECURITY WARNING: The default JWT secret key is in use. "
+            "This key is publicly known. Change 'secret_key' in your configuration "
+            "before deploying to production."
+        )
+
     # Set all CORS enabled origins
     if CONF.default.cors_allow_origins:
         app.add_middleware(
@@ -104,6 +113,49 @@ async def validate_token(request: Request, call_next):
     for ignore_url in ignore_urls:
         if url_path.startswith(ignore_url):
             return await call_next(request)
+
+    # Validate JWT token from session cookie
+    payload_str = request.cookies.get(CONF.default.session_name)
+    if payload_str:
+        try:
+            token = parse_access_token(payload_str)
+
+            # Check if token has been revoked
+            if db_api.check_token(token.uuid):
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": constants.ERR_MSG_TOKEN_REVOKED},
+                )
+
+            profile = generate_profile_by_token(token)
+            request.state.profile = profile
+
+            # Check if token needs renewal
+            current_time = int(time.time())
+            if profile.exp - current_time <= CONF.default.access_token_renew:
+                from skyline_apiserver import schemas
+                renewed_payload = schemas.Payload(
+                    keystone_token=profile.keystone_token,
+                    region=profile.region,
+                    exp=current_time + CONF.default.access_token_expire,
+                    uuid=profile.uuid,
+                )
+                request.state.token_needs_renewal = True
+                request.state.new_token = renewed_payload.toJWTPayload()
+                request.state.new_exp = str(renewed_payload.exp)
+        except jose.ExpiredSignatureError:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": constants.ERR_MSG_TOKEN_EXPIRED},
+            )
+        except jose.JWTError:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Invalid token"},
+            )
+        except Exception as e:
+            LOG.debug(f"Cookie token validation failed: {e}")
+            # Cookie validation failed; endpoint-level Bearer token auth will handle auth
 
     response = await call_next(request)
 

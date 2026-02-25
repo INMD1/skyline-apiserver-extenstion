@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional
+from datetime import datetime
 from pydantic import BaseModel
 
 class Keypair(BaseModel):
@@ -7,6 +8,7 @@ class Keypair(BaseModel):
     fingerprint: str
     public_key: str
     type: str
+    created_at: Optional[datetime] = None
 
 class KeypairDetail(Keypair):
     private_key: Optional[str] = None
