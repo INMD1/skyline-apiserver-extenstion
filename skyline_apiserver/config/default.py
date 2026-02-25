@@ -58,7 +58,12 @@ error_log_file = Opt(
 
 secret_key = Opt(
     name="secret_key",
-    description="Secret key",
+    description=(
+        "Secret key for signing JWT tokens. "
+        "WARNING: This default value is publicly known and MUST be changed "
+        "in production environments. Use a cryptographically random string "
+        "of at least 32 characters."
+    ),
     schema=StrictStr,
     default="aCtmgbcUqYUy_HNVg5BDXCaeJgJQzHJXwqbXr0Nmb2o",
 )

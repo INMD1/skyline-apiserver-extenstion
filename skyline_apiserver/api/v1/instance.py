@@ -1,7 +1,7 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 
 from skyline_apiserver import schemas
@@ -17,9 +17,9 @@ LOG = logging.getLogger(__name__)
 
 
 class PortForwardingRule(BaseModel):
-    internal_port: int
-    external_port: int
-    protocol: str = "tcp"
+    internal_port: int = Field(..., ge=1, le=65535)
+    external_port: int = Field(..., ge=1, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
 
 
 class InstanceCreate(BaseModel):
@@ -35,9 +35,9 @@ class InstanceCreate(BaseModel):
 
 class PortForwardingAdd(BaseModel):
     internal_ip: str
-    internal_port: int
-    external_port: int | None = None
-    protocol: str = "tcp"
+    internal_port: int = Field(..., ge=1, le=65535)
+    external_port: int | None = Field(None, ge=1, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
     floating_ip: str | None = None  # Floating IP 주소 또는 UUID (선택적)
 
 
@@ -368,7 +368,8 @@ def get_instance(
 
         return server_dict
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        LOG.error(f"Failed to get instance {instance_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get instance")
 
 
 @router.get("/port_forwardings/stats")
@@ -439,8 +440,9 @@ def get_port_forwarding_stats(
             "port_forwardings": user_port_forwardings,
         }
     except Exception as e:
+        LOG.error(f"Failed to get port forwarding stats: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to get port forwarding stats: {e}"
+            status_code=500, detail="Failed to get port forwarding stats"
         )
 
 
@@ -530,8 +532,9 @@ def add_port_forwarding(
         }
         return response
     except Exception as e:
+        LOG.error(f"Failed to create port forwarding: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to create port forwarding: {e}"
+            status_code=500, detail="Failed to create port forwarding"
         )
 
 
@@ -550,8 +553,9 @@ def delete_port_forwarding(
         )
         return
     except Exception as e:
+        LOG.error(f"Failed to delete port forwarding: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to delete port forwarding: {e}"
+            status_code=500, detail="Failed to delete port forwarding"
         )
 
 
@@ -578,8 +582,9 @@ def list_instance_port_forwardings(
             "port_forwardings": pfs,
         }
     except Exception as e:
+        LOG.error(f"Failed to list port forwardings for instance {instance_id}: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to list port forwardings: {e}"
+            status_code=500, detail="Failed to list port forwardings"
         )
 
 
@@ -600,8 +605,9 @@ def get_instance_console(
         )
         return console_data
     except Exception as e:
+        LOG.error(f"Failed to get console URL for instance {instance_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get console URL"
         )
 
 
@@ -703,9 +709,10 @@ def delete_instance(
 
         return
     except Exception as e:
+        LOG.error(f"Failed to delete instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete instance: {e}",
+            detail="Failed to delete instance",
         )
 
 
@@ -775,9 +782,10 @@ def attach_volume(
             "volume_id": volume_action.volume_id,
         }
     except Exception as e:
+        LOG.error(f"Failed to attach volume {volume_action.volume_id} to instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to attach volume: {e}",
+            detail="Failed to attach volume",
         )
 
 
@@ -806,9 +814,10 @@ def detach_volume(
             "volume_id": volume_action.volume_id,
         }
     except Exception as e:
+        LOG.error(f"Failed to detach volume {volume_action.volume_id} from instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to detach volume: {e}",
+            detail="Failed to detach volume",
         )
 
 
@@ -837,9 +846,10 @@ def start_instance(
         )
         return {"message": "Instance started successfully", "instance_id": instance_id}
     except Exception as e:
+        LOG.error(f"Failed to start instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start instance: {e}",
+            detail="Failed to start instance",
         )
 
 
@@ -868,14 +878,15 @@ def stop_instance(
         )
         return {"message": "Instance stopped successfully", "instance_id": instance_id}
     except Exception as e:
+        LOG.error(f"Failed to stop instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to stop instance: {e}",
+            detail="Failed to stop instance",
         )
 
 
 class RebootRequest(BaseModel):
-    reboot_type: str = "SOFT"  # SOFT or HARD
+    reboot_type: Literal["SOFT", "HARD"] = "SOFT"
 
 
 @router.post("/instances/{instance_id}/reboot", status_code=status.HTTP_200_OK)
@@ -908,7 +919,8 @@ def reboot_instance(
             "reboot_type": reboot_request.reboot_type,
         }
     except Exception as e:
+        LOG.error(f"Failed to reboot instance {instance_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reboot instance: {e}",
+            detail="Failed to reboot instance",
         )

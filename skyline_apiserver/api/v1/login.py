@@ -202,9 +202,10 @@ def _patch_profile(profile: schemas.Profile, global_request_id: str) -> schemas.
         profile.default_project_id = default_project_id
 
     except Exception as e:
+        LOG.debug(f"Profile patch failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
+            detail="Authentication failed",
         )
     return profile
 
@@ -255,9 +256,10 @@ def login(
 
         profile = _patch_profile(profile, x_openstack_request_id)
     except Exception as e:
+        LOG.debug(f"Login failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
+            detail="Invalid credentials or unauthorized",
         )
     else:
         session = generate_session(profile)
@@ -267,8 +269,20 @@ def login(
             message=f"User {profile.user.name} logged in successfully.",
             status_result="success",
         )
-        response.set_cookie(CONF.default.session_name, profile.toJWTPayload())
-        response.set_cookie(constants.TIME_EXPIRED_KEY, str(profile.exp))
+        response.set_cookie(
+            CONF.default.session_name,
+            profile.toJWTPayload(),
+            httponly=True,
+            secure=CONF.default.ssl_enabled,
+            samesite="strict",
+        )
+        response.set_cookie(
+            constants.TIME_EXPIRED_KEY,
+            str(profile.exp),
+            httponly=False,
+            secure=CONF.default.ssl_enabled,
+            samesite="strict",
+        )
         return profile
 
 
@@ -359,14 +373,27 @@ def websso(
 
         profile = _patch_profile(profile, x_openstack_request_id)
     except Exception as e:
+        LOG.debug(f"SSO login failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
+            detail="SSO authentication failed",
         )
     else:
         response = RedirectResponse(url="/base/overview", status_code=status.HTTP_302_FOUND)
-        response.set_cookie(CONF.default.session_name, profile.toJWTPayload())
-        response.set_cookie(constants.TIME_EXPIRED_KEY, str(profile.exp))
+        response.set_cookie(
+            CONF.default.session_name,
+            profile.toJWTPayload(),
+            httponly=True,
+            secure=CONF.default.ssl_enabled,
+            samesite="strict",
+        )
+        response.set_cookie(
+            constants.TIME_EXPIRED_KEY,
+            str(profile.exp),
+            httponly=False,
+            secure=CONF.default.ssl_enabled,
+            samesite="strict",
+        )
         return response
 
 
@@ -479,11 +506,24 @@ def switch_project(
         )
         new_profile = _patch_profile(new_profile, x_openstack_request_id)
     except Exception as e:
+        LOG.debug(f"Switch project failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
+            detail="Project switch failed",
         )
     else:
-        response.set_cookie(CONF.default.session_name, new_profile.toJWTPayload())
-        response.set_cookie(constants.TIME_EXPIRED_KEY, str(new_profile.exp))
+        response.set_cookie(
+            CONF.default.session_name,
+            new_profile.toJWTPayload(),
+            httponly=True,
+            secure=CONF.default.ssl_enabled,
+            samesite="strict",
+        )
+        response.set_cookie(
+            constants.TIME_EXPIRED_KEY,
+            str(new_profile.exp),
+            httponly=False,
+            secure=CONF.default.ssl_enabled,
+            samesite="strict",
+        )
         return new_profile

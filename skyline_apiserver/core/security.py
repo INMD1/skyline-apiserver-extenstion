@@ -29,6 +29,7 @@ from skyline_apiserver.client import utils
 from skyline_apiserver.client.utils import get_system_session
 from skyline_apiserver.config import CONF
 from skyline_apiserver.db import api as db_api
+from skyline_apiserver.log import LOG
 
 
 def parse_access_token(token: str) -> (schemas.Payload):
@@ -71,9 +72,10 @@ def generate_profile(
             "description": getattr(user_info, "description", None),
         }
     except Exception as e:
+        LOG.debug(f"Profile generation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
+            detail="Authentication failed",
         )
     else:
         return schemas.Profile(
