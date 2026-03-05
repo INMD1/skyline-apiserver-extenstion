@@ -16,7 +16,7 @@ import multiprocessing
 
 bind = "unix:/var/lib/skyline/skyline.sock"
 reuse_port = False
-# bind = "0.0.0.0:8000"
+ bind = "0.0.0.0:28000"
 # reuse_port = True
 workers = (1 + multiprocessing.cpu_count()) // 2
 worker_class = "uvicorn.workers.UvicornWorker"
