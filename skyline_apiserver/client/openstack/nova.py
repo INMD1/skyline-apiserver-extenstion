@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import status
@@ -143,13 +144,9 @@ def create_instance_with_network(
         nics=[{"net-id": net_id}],
         key_name=key_name,
         security_groups=security_groups,
-        meta=str(meta),
+        meta=meta,
     )
-    # TODO: Wait for server to be active
     return server
-
-
-import time
 
 
 def get_server_internal_ip(
@@ -207,8 +204,11 @@ def get_console_url(
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     if console_type == "novnc":
-        console = nc.servers.get_vnc_console(server_id, "novnc")
-    return console
+        return nc.servers.get_vnc_console(server_id, "novnc")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported console type: {console_type}",
+    )
 
 
 def list_flavors(

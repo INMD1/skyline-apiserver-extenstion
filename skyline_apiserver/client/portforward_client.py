@@ -4,7 +4,10 @@
 import httpx
 from typing import Any, Dict, List, Optional
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from skyline_apiserver.config import CONF
+from skyline_apiserver.log import LOG
 from skyline_apiserver.schemas.portforward import (
     PortForwardingCreate,
     PortForwardingUpdate,
@@ -31,10 +34,8 @@ def _get_base_url() -> str:
 
 def _get_headers(token: Optional[str] = None) -> Dict[str, str]:
     """HTTP 헤더 생성"""
-    from skyline_apiserver.log import LOG
-    
     headers = {"Content-Type": "application/json"}
-    
+
     # 1. 명시적으로 전달된 토큰 사용
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -52,36 +53,46 @@ def _get_headers(token: Optional[str] = None) -> Dict[str, str]:
 
 def _handle_response(response: httpx.Response) -> Dict[str, Any]:
     """응답 처리 및 에러 핸들링"""
-    from skyline_apiserver.log import LOG
-    
     if response.status_code >= 400:
         try:
             detail = response.json().get("detail", response.text)
         except Exception:
             detail = response.text
-        
+
         LOG.error(f"[PortForward] API Error - Status: {response.status_code}, Detail: {detail}, URL: {response.url}")
         raise PortForwardClientError(response.status_code, detail)
-    
+
     if response.status_code == 204:
         return {}
-    
+
     return response.json()
+
+
+# tenacity 재시도 데코레이터: 네트워크 일시 장애 시 Exponential Backoff로 최대 3회 재시도
+_retry_on_network_error = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
+    before_sleep=lambda retry_state: LOG.warning(
+        f"[PortForward] 재시도 {retry_state.attempt_number}/3 - "
+        f"오류: {retry_state.outcome.exception()}"
+    ),
+)
 
 
 # ===== 포트포워딩 CRUD =====
 
-def create_portforwarding(
+@_retry_on_network_error
+async def create_portforwarding(
     request: PortForwardingCreate,
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """포트포워딩 규칙 생성"""
     url = f"{_get_base_url()}/portforward"
-    with httpx.Client(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         json_payload = request.model_dump(exclude_none=True)
-        from skyline_apiserver.log import LOG
         LOG.debug(f"Creating portforwarding with payload: {json_payload}")
-        response = client.post(
+        response = await client.post(
             url,
             headers=_get_headers(token),
             json=json_payload,
@@ -89,7 +100,8 @@ def create_portforwarding(
         return _handle_response(response)
 
 
-def list_portforwardings(
+@_retry_on_network_error
+async def list_portforwardings(
     status_filter: Optional[str] = None,
     floating_ip: Optional[str] = None,
     service_type: Optional[str] = None,
@@ -107,43 +119,46 @@ def list_portforwardings(
         params["service_type"] = service_type
     if vm_id:
         params["vm_id"] = vm_id
-    
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url, headers=_get_headers(token), params=params)
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=_get_headers(token), params=params)
         return _handle_response(response)
 
 
-def get_portforwardings_by_vm(
+@_retry_on_network_error
+async def get_portforwardings_by_vm(
     vm_id: str,
     token: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """VM별 포트포워딩 규칙 조회"""
     url = f"{_get_base_url()}/portforward/vm/{vm_id}"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url, headers=_get_headers(token))
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=_get_headers(token))
         return _handle_response(response)
 
 
-def get_portforwarding(
+@_retry_on_network_error
+async def get_portforwarding(
     rule_id: str,
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """특정 포트포워딩 규칙 조회"""
     url = f"{_get_base_url()}/portforward/{rule_id}"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url, headers=_get_headers(token))
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=_get_headers(token))
         return _handle_response(response)
 
 
-def update_portforwarding(
+@_retry_on_network_error
+async def update_portforwarding(
     rule_id: str,
     request: PortForwardingUpdate,
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """포트포워딩 규칙 업데이트"""
     url = f"{_get_base_url()}/portforward/{rule_id}"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.patch(
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.patch(
             url,
             headers=_get_headers(token),
             json=request.model_dump(exclude_none=True),
@@ -151,50 +166,55 @@ def update_portforwarding(
         return _handle_response(response)
 
 
-def delete_portforwarding(
+@_retry_on_network_error
+async def delete_portforwarding(
     rule_id: str,
     token: Optional[str] = None,
 ) -> None:
     """포트포워딩 규칙 삭제"""
     url = f"{_get_base_url()}/portforward/{rule_id}"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.delete(url, headers=_get_headers(token))
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.delete(url, headers=_get_headers(token))
         _handle_response(response)
 
 
 # ===== 상태 조회 =====
 
-def get_status(token: Optional[str] = None) -> Dict[str, Any]:
+@_retry_on_network_error
+async def get_status(token: Optional[str] = None) -> Dict[str, Any]:
     """시스템 상태 조회"""
     url = f"{_get_base_url()}/status"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url, headers=_get_headers(token))
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=_get_headers(token))
         return _handle_response(response)
 
 
-def get_floating_ips(token: Optional[str] = None) -> List[Dict[str, Any]]:
+@_retry_on_network_error
+async def get_floating_ips(token: Optional[str] = None) -> List[Dict[str, Any]]:
     """Floating IP 상태 조회"""
     url = f"{_get_base_url()}/floating-ips"
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url, headers=_get_headers(token))
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=_get_headers(token))
         return _handle_response(response)
 
 
-def preview_port_allocation(
+@_retry_on_network_error
+async def preview_port_allocation(
     service_type: str = "other",
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """포트 할당 미리보기"""
     url = f"{_get_base_url()}/port-allocation/preview"
     params = {"service_type": service_type}
-    with httpx.Client(timeout=30.0) as client:
-        response = client.get(url, headers=_get_headers(token), params=params)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=_get_headers(token), params=params)
         return _handle_response(response)
 
 
-def health_check() -> Dict[str, Any]:
+@_retry_on_network_error
+async def health_check() -> Dict[str, Any]:
     """헬스 체크"""
     url = f"{_get_base_url()}/health"
-    with httpx.Client(timeout=10.0) as client:
-        response = client.get(url)
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(url)
         return _handle_response(response)

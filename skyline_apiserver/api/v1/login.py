@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 from pathlib import PurePath
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import status
@@ -147,7 +148,6 @@ def _get_projects_and_unscope_token(
         projects_data = resp.json().get("projects", [])
 
     # Convert to objects similar to what KeystoneClient returns
-    from types import SimpleNamespace
     project_scope = [
         SimpleNamespace(
             id=p["id"],

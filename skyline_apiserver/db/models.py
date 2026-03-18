@@ -46,5 +46,5 @@ UserActivity = Table(
     Column("status", String(length=32), nullable=False),  # 'success' or
     Column("token", String(length=256), nullable=False),
     Column("timestamp", Integer, nullable=False),
-    Column("created_at", DateTime, nullable=False),
+    Column("created_at", DateTime, nullable=True),
 )

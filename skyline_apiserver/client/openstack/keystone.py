@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import httpx
@@ -302,7 +303,6 @@ def get_user(id: str, region: str, session: Session) -> Any:
         resp = client.get(f"{base_url}/users/{id}", headers=headers)
         if resp.status_code == 200:
             user_data = resp.json().get("user", {})
-            from types import SimpleNamespace
             # Ensure default_project_id exists even if None
             if "default_project_id" not in user_data:
                 user_data["default_project_id"] = None

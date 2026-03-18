@@ -1,17 +1,20 @@
-from typing import List, Literal, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+import asyncio
 import logging
+import uuid
+from typing import List, Literal, Optional
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from pydantic import BaseModel, Field
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from skyline_apiserver import schemas
 from skyline_apiserver.api import deps
-from skyline_apiserver.client import utils
+from skyline_apiserver.client import portforward_client, utils
 from skyline_apiserver.client.openstack import nova, neutron, cinder
+from skyline_apiserver.client.utils import get_system_session
+from skyline_apiserver.config import CONF
 from skyline_apiserver.db import api as db_api
-import random
-import time
-import uuid
 
 LOG = logging.getLogger(__name__)
 
@@ -49,7 +52,34 @@ class PortForwardingDelete(BaseModel):
 router = APIRouter()
 
 
-def setup_instance_networking(
+# tenacity 재시도 데코레이터: 외부 Proxy API 호출 시 네트워크 순단 대비
+_retry_on_network_error = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
+    before_sleep=lambda retry_state: LOG.warning(
+        f"[Proxy API 재시도] {retry_state.attempt_number}/3 - "
+        f"오류: {retry_state.outcome.exception()}"
+    ),
+)
+
+
+@_retry_on_network_error
+async def _call_portforward_api(
+    portforward_api_url: str,
+    headers: dict,
+    payload: dict,
+) -> httpx.Response:
+    """외부 포트포워딩 API POST 호출 (재시도 적용)"""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        return await client.post(
+            f"{portforward_api_url}/portforward",
+            json=payload,
+            headers=headers,
+        )
+
+
+async def setup_instance_networking(
     server_id: str,
     server_name: str,
     profile: schemas.Profile,
@@ -57,7 +87,6 @@ def setup_instance_networking(
 ):
     """인스턴스 생성 후 SSH 포트포워딩을 자동 설정합니다.
     인스턴스가 ACTIVE 상태가 될 때까지 대기한 후 포트포워딩을 진행합니다."""
-    import httpx
 
     session = utils.generate_session(profile)
 
@@ -65,7 +94,7 @@ def setup_instance_networking(
         # 1. 인스턴스가 ACTIVE 상태가 될 때까지 대기 (최대 10분)
         LOG.info(f"[네트워크] 서버 {server_id} ACTIVE 상태 대기 시작")
         instance_active = False
-        for _ in range(60):  # 최대 10분 대기 (60 * 10초)
+        for attempt in range(60):  # 최대 10분 대기 (60 * 10초)
             try:
                 server = nova.get_server(session, profile, server_id)
                 server_status = server.status
@@ -73,14 +102,14 @@ def setup_instance_networking(
                 if server_status == "ACTIVE":
                     instance_active = True
                     break
-                elif server_status == "ERROR":
+                if server_status == "ERROR":
                     LOG.error(
                         f"[네트워크] 서버 {server_id} 상태가 ERROR입니다. 포트포워딩 중단."
                     )
                     return
             except Exception as e:
-                LOG.warning(f"[네트워크] 서버 {server_id} 상태 확인 실패: {e}")
-            time.sleep(10)
+                LOG.warning(f"[네트워크] 서버 {server_id} 상태 확인 실패 (시도 {attempt + 1}/60): {e}")
+            await asyncio.sleep(10)
 
         if not instance_active:
             LOG.error(
@@ -91,18 +120,20 @@ def setup_instance_networking(
         LOG.info(
             f"[네트워크] 서버 {server_id} ACTIVE 상태 확인 완료. 인터페이스 준비 대기 (추가 10초)"
         )
-        time.sleep(10)  # 인터페이스가 완전히 준비될 때까지 추가 대기
+        await asyncio.sleep(10)  # 인터페이스가 완전히 준비될 때까지 추가 대기
 
         # 2. VM의 Internal IP 가져오기
         internal_ip = None
-        for _ in range(10):  # 최대 100초 대기
+        for attempt in range(10):  # 최대 100초 대기
             try:
                 internal_ip = nova.get_server_internal_ip(session, profile, server_id)
                 if internal_ip:
                     break
-            except Exception:
-                pass
-            time.sleep(10)
+            except Exception as e:
+                LOG.warning(
+                    f"[네트워크] 서버 {server_id} Internal IP 조회 실패 (시도 {attempt + 1}/10): {e}"
+                )
+            await asyncio.sleep(10)
 
         if not internal_ip:
             LOG.error(f"[네트워크] 서버 {server_id}의 Internal IP를 찾을 수 없습니다.")
@@ -134,26 +165,20 @@ def setup_instance_networking(
                 "service_type": "ssh",  # SSH 전용 IP에서 할당
                 "protocol": "tcp",
             }
-
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(
-                    f"{portforward_api_url}/portforward",
-                    json=ssh_payload,
-                    headers=headers,
+            response = await _call_portforward_api(
+                portforward_api_url, headers, ssh_payload
+            )
+            if response.status_code == 201:
+                result = response.json()
+                LOG.info(
+                    f"[SSH 포트포워딩 생성 완료] 서버: {server_id}, "
+                    f"외부: {result.get('proxy_external_ip')}:{result.get('proxy_external_port')} -> "
+                    f"내부: {internal_ip}:22"
                 )
-
-                if response.status_code == 201:
-                    result = response.json()
-                    LOG.info(
-                        f"[SSH 포트포워딩 생성 완료] 서버: {server_id}, "
-                        f"외부: {result.get('proxy_external_ip')}:{result.get('proxy_external_port')} -> "
-                        f"내부: {internal_ip}:22"
-                    )
-                else:
-                    LOG.warning(
-                        f"[SSH 포트포워딩 생성 실패] 상태: {response.status_code}, 응답: {response.text}"
-                    )
-
+            else:
+                LOG.warning(
+                    f"[SSH 포트포워딩 생성 실패] 상태: {response.status_code}, 응답: {response.text}"
+                )
         except Exception as e:
             LOG.warning(f"[SSH 포트포워딩 생성 오류] 서버: {server_id}, 오류: {e}")
 
@@ -167,30 +192,21 @@ def setup_instance_networking(
                         "user_vm_name": server_name,
                         "user_vm_internal_ip": internal_ip,
                         "user_vm_internal_port": port.internal_port,
-                        "proxy_external_port": port.external_port
-                        if port.external_port
-                        else None,
+                        "proxy_external_port": port.external_port or None,
                         "service_type": "other",  # 일반 포트용 IP에서 할당
                         "protocol": port.protocol,
                     }
-
-                    with httpx.Client(timeout=30.0) as client:
-                        response = client.post(
-                            f"{portforward_api_url}/portforward",
-                            json=port_payload,
-                            headers=headers,
+                    response = await _call_portforward_api(
+                        portforward_api_url, headers, port_payload
+                    )
+                    if response.status_code == 201:
+                        LOG.info(
+                            f"[추가 포트포워딩 생성 완료] 서버: {server_id}, 포트: {port.internal_port}"
                         )
-
-                        if response.status_code == 201:
-                            result = response.json()
-                            LOG.info(
-                                f"[추가 포트포워딩 생성 완료] 서버: {server_id}, 포트: {port.internal_port}"
-                            )
-                        else:
-                            LOG.warning(
-                                f"[추가 포트포워딩 생성 실패] 포트: {port.internal_port}, 상태: {response.status_code}"
-                            )
-
+                    else:
+                        LOG.warning(
+                            f"[추가 포트포워딩 생성 실패] 포트: {port.internal_port}, 상태: {response.status_code}"
+                        )
                 except Exception as e:
                     LOG.warning(
                         f"[추가 포트포워딩 생성 오류] 포트: {port.internal_port}, 오류: {e}"
@@ -201,7 +217,7 @@ def setup_instance_networking(
 
 
 @router.post("/instances", status_code=status.HTTP_202_ACCEPTED)
-def create_instance(
+async def create_instance(
     instance: InstanceCreate,
     background_tasks: BackgroundTasks,
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
@@ -241,7 +257,7 @@ def create_instance(
         token="",  # 보안을 위해 토큰 저장 제거
     )
 
-    # 실제 생성 로직은 백그라운드 태스크로 돌림
+    # 실제 생성 로직은 백그라운드 태스크로 돌림 (async 함수이므로 이벤트 루프에서 실행됨)
     background_tasks.add_task(
         _provision_instance, session, profile, instance, request_id
     )
@@ -254,7 +270,7 @@ def create_instance(
     }
 
 
-def _provision_instance(session, profile, instance: InstanceCreate, request_id: str):
+async def _provision_instance(session, profile, instance: InstanceCreate, request_id: str):
     try:
         if instance.volume_size:
             if not instance.image_id:
@@ -269,11 +285,13 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
             )
 
             # 볼륨 준비 기다리기
-            for _ in range(120):
+            for attempt in range(120):
                 vol_status = cinder.get_volume(session, profile, volume.id).status
                 if vol_status == "available":
                     break
-                time.sleep(10)
+                if vol_status == "error":
+                    raise RuntimeError(f"Volume {volume.id} entered ERROR state.")
+                await asyncio.sleep(10)
             else:
                 raise RuntimeError("Volume creation timed out.")
 
@@ -310,8 +328,8 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
                 f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}"
             )
 
-        # 추가 네트워크 세팅도 백그라운드로
-        setup_instance_networking(
+        # 추가 네트워크 세팅
+        await setup_instance_networking(
             server.id, instance.name, profile, instance.additional_ports
         )
 
@@ -320,9 +338,6 @@ def _provision_instance(session, profile, instance: InstanceCreate, request_id: 
 
     except Exception as e:
         LOG.error(f"[인스턴스 생성 실패] 요청ID: {request_id}, 오류: {e}")
-
-
-from skyline_apiserver.config import CONF
 
 
 @router.get("/instances/{instance_id}")
@@ -356,7 +371,7 @@ def get_instance(
             if internal_ip:
                 break
 
-        # OS 정보 추가 
+        # OS 정보 추가
         if server.metadata:
             try:
                 server_dict["os_name"] = server.metadata.get("os_name")
@@ -395,8 +410,6 @@ def get_port_forwarding_stats(
                         user_internal_ips.add(ip_info["addr"])
 
         # 시스템 세션으로 포트포워딩 조회
-        from skyline_apiserver.client.utils import get_system_session
-
         system_session = get_system_session()
         nc = utils.neutron_client(session=system_session, region=profile.region)
 
@@ -428,7 +441,8 @@ def get_port_forwarding_stats(
                                 "protocol": pf.get("protocol"),
                             }
                         )
-            except Exception:
+            except Exception as e:
+                LOG.warning(f"[포트포워딩 통계] Floating IP {fip['id']} 조회 실패: {e}")
                 continue
 
         return {
@@ -504,8 +518,6 @@ def add_port_forwarding(
         fip_id = fip["id"]
 
         # 시스템 세션 사용 (floating IP가 다른 프로젝트에 있을 수 있음)
-        from skyline_apiserver.client.utils import get_system_session
-
         system_session = get_system_session()
 
         pf = neutron.create_port_forwarding_rule(
@@ -612,7 +624,7 @@ def get_instance_console(
 
 
 @router.delete("/instances/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_instance(
+async def delete_instance(
     instance_id: str,
     background_tasks: BackgroundTasks,
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
@@ -620,14 +632,12 @@ def delete_instance(
     """
     인스턴스를 삭제합니다. 연결된 볼륨과 포트포워딩 규칙도 함께 삭제됩니다.
     """
-    from skyline_apiserver.client import portforward_client
-
     session = utils.generate_session(profile)
 
     try:
         # 0-a. 외부 포트포워딩 서비스 규칙 정리 (외부 Proxy VM 서비스)
         try:
-            ext_pfs = portforward_client.get_portforwardings_by_vm(instance_id)
+            ext_pfs = await portforward_client.get_portforwardings_by_vm(instance_id)
             if ext_pfs:
                 LOG.info(
                     f"[외부 포트포워딩 정리] 인스턴스 {instance_id} 관련 외부 규칙 {len(ext_pfs)}개 삭제 시작"
@@ -636,7 +646,7 @@ def delete_instance(
                     try:
                         rule_id = ext_pf.get("id") or ext_pf.get("rule_id")
                         if rule_id:
-                            portforward_client.delete_portforwarding(rule_id)
+                            await portforward_client.delete_portforwarding(rule_id)
                             LOG.info(f"[외부 포트포워딩 삭제 완료] rule_id: {rule_id}")
                     except Exception as ext_err:
                         LOG.warning(
@@ -657,8 +667,6 @@ def delete_instance(
                     LOG.info(
                         f"[Neutron 포트포워딩 정리] 인스턴스 {instance_id} ({internal_ip}) 관련 규칙 {len(pfs)}개 삭제 시작"
                     )
-                    from skyline_apiserver.client.utils import get_system_session
-
                     system_session = get_system_session()
 
                     for pf in pfs:
@@ -716,34 +724,34 @@ def delete_instance(
         )
 
 
-def _delete_volumes_after_instance(
+async def _delete_volumes_after_instance(
     session, profile, instance_id: str, volume_ids: list
 ):
     """인스턴스가 삭제된 후 볼륨을 삭제하는 백그라운드 태스크"""
-    import time
-
     # 인스턴스가 완전히 삭제될 때까지 대기 (최대 2분)
-    for _ in range(24):
+    for attempt in range(24):
         try:
             nova.get_server(session, profile, instance_id)
             # 아직 인스턴스가 존재하면 대기
-            time.sleep(5)
-        except:
-            # 인스턴스가 삭제됨
+            await asyncio.sleep(5)
+        except Exception as e:
+            # 인스턴스가 삭제됨 (404 등)
+            LOG.info(f"[볼륨 정리] 인스턴스 {instance_id} 삭제 확인 (시도 {attempt + 1}): {e}")
             break
 
     # 볼륨이 available 상태가 될 때까지 대기 후 삭제
     for volume_id in volume_ids:
         try:
             # 볼륨이 available 상태가 될 때까지 대기 (최대 1분)
-            for _ in range(12):
+            for attempt in range(12):
                 try:
                     volume = cinder.get_volume(session, profile, volume_id)
                     if volume.status == "available":
                         break
-                    time.sleep(5)
-                except:
+                    await asyncio.sleep(5)
+                except Exception as e:
                     # 볼륨이 이미 삭제됨
+                    LOG.info(f"[볼륨 정리] 볼륨 {volume_id} 상태 확인 불가 (이미 삭제됨?): {e}")
                     break
 
             # 볼륨 삭제
