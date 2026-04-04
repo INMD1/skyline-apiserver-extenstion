@@ -34,14 +34,21 @@ def getJWTPayload(request: Request) -> Optional[str]:
     return None
 
 
-def get_profile(request: Request) -> schemas.Profile:
-    """Get profile from request state (set by middleware)."""
-    if not hasattr(request.state, "profile"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Profile not found in request state",
-        )
-    return request.state.profile
+def get_profile(
+    request: Request,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> schemas.Profile:
+    """Get profile from request state (set by middleware), or from Bearer token as fallback."""
+    if hasattr(request.state, "profile"):
+        return request.state.profile
+
+    if authorization:
+        return get_profile_from_header(authorization)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Profile not found in request state",
+    )
 
 
 def get_profile_update_jwt(request: Request, response: Response) -> schemas.Profile:
@@ -56,6 +63,7 @@ def get_profile_update_jwt(request: Request, response: Response) -> schemas.Prof
 def get_profile_from_header(
     authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> schemas.Profile:
+
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -63,9 +71,7 @@ def get_profile_from_header(
         )
 
     token = authorization
-    if token.lower().startswith("bearer "):
-        token = token[7:]
-
+    
     try:
         profile = generate_profile(
             keystone_token=token,

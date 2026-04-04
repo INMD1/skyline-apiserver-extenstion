@@ -22,3 +22,12 @@ class SignupRequest(BaseModel):
         if not re.match(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$", v):
             raise ValueError("Invalid email format")
         return v
+
+
+class ChangePasswordBody(BaseModel):
+    original_password: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class ChangePasswordRequest(BaseModel):
+    user: ChangePasswordBody

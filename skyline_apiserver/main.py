@@ -160,8 +160,11 @@ async def validate_token(request: Request, call_next):
                 content={"detail": "Invalid token"},
             )
         except Exception as e:
-            LOG.debug(f"Cookie token validation failed: {e}")
-            # Cookie validation failed; endpoint-level Bearer token auth will handle auth
+            LOG.warning(f"Cookie token validation failed: {type(e).__name__}: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Session expired or invalid. Please log in again."},
+            )
 
     response = await call_next(request)
 

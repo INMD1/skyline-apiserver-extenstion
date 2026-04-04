@@ -13,14 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from fastapi import APIRouter, Depends, HTTPException
-from skyline_apiserver.schemas.user import SignupRequest
-from skyline_apiserver.client.openstack.keystone import create_user
+from skyline_apiserver.schemas.user import SignupRequest, ChangePasswordRequest
+from skyline_apiserver.client.openstack.keystone import create_user, change_password
+from skyline_apiserver.api.deps import get_profile
 
 router = APIRouter()
 
 @router.post("/signup", tags=["User"])
 async def signup(user: SignupRequest):
     success, msg = await create_user(user)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"message": msg}
+
+
+@router.post("/change-password", tags=["User"])
+async def change_user_password(
+    req: ChangePasswordRequest,
+    profile=Depends(get_profile),
+):
+    success, msg = await change_password(
+        user_id=profile.user.id,
+        keystone_token=profile.keystone_token,
+        req=req,
+    )
     if not success:
         raise HTTPException(status_code=400, detail=msg)
     return {"message": msg}

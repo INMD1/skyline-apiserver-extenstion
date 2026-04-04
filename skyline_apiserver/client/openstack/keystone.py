@@ -30,7 +30,7 @@ from skyline_apiserver.client import utils
 from skyline_apiserver.client.openstack import cinder, nova, neutron
 from skyline_apiserver.config import CONF
 from skyline_apiserver.log import LOG
-from skyline_apiserver.schemas.user import SignupRequest
+from skyline_apiserver.schemas.user import SignupRequest, ChangePasswordRequest
 
 
 async def _delete_project(project_id: str):
@@ -221,6 +221,35 @@ async def create_user(user: SignupRequest):
             if new_project_id:
                 await _delete_project(new_project_id)
             return False, str(e)
+
+
+async def change_password(user_id: str, keystone_token: str, req: ChangePasswordRequest):
+    base_url = CONF.openstack.keystone_url.rstrip("/")
+    print(base_url)
+    headers = {
+        "X-Auth-Token": keystone_token,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "user": {
+            "password": req.user.password,
+            "original_password": req.user.original_password,
+        }
+    }
+
+    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+        resp = await client.post(
+            f"{base_url}/users/{user_id}/password",
+            json=payload,
+            headers=headers,
+        )
+        if resp.status_code == 204:
+            return True, "Password changed successfully."
+        if resp.status_code == 401:
+            return False, "Current password is incorrect."
+        if resp.status_code == 403:
+            return False, "Permission denied."
+        return False, f"Failed to change password: {resp.text}"
 
 
 def list_projects(
