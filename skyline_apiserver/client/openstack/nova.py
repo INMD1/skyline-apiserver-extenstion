@@ -107,9 +107,10 @@ def create_instance_from_volume(
     volume_id: str,
     flavor_id: str,
     net_id: str,
-    key_name: str,
+    key_name: Optional[str] = None,  # 키페어 없으면 None 전달 가능
     security_groups: Optional[List[str]] = None,
     meta: Optional[Dict[str, str]] = None,
+    userdata: Optional[str] = None,
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
@@ -121,6 +122,7 @@ def create_instance_from_volume(
         block_device_mapping={"vda": f"{volume_id}:::0"},
         security_groups=security_groups,
         meta=meta,
+        userdata=userdata,
     )
     return server
 
@@ -132,9 +134,10 @@ def create_instance_with_network(
     image_id: str,
     flavor_id: str,
     net_id: str,
-    key_name: str,
+    key_name: Optional[str] = None,  # 키페어 없으면 None 전달 가능
     security_groups: Optional[List[str]] = None,
     meta: Optional[Dict[str, str]] = None,
+    userdata: Optional[str] = None,
 ):
     nc = utils.nova_client(session=session, region=profile.region)
     server = nc.servers.create(
@@ -145,6 +148,7 @@ def create_instance_with_network(
         key_name=key_name,
         security_groups=security_groups,
         meta=meta,
+        userdata=userdata,
     )
     return server
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+import secrets
 from typing import List, Literal, Optional
 
 import httpx
@@ -29,7 +30,7 @@ class InstanceCreate(BaseModel):
     name: str
     image_id: Optional[str] = None
     flavor_id: str
-    key_name: str
+    key_name: Optional[str] = None  # 키페어 없으면 비밀번호 로그인 모드
     network_id: str
     volume_size: Optional[int] = None
     additional_ports: Optional[List[PortForwardingRule]] = None
@@ -272,6 +273,39 @@ async def create_instance(
 
 async def _provision_instance(session, profile, instance: InstanceCreate, request_id: str):
     try:
+        default_user = "cloud-user"
+        default_password = secrets.token_urlsafe(12)
+        userdata_payload = None
+        instance_meta = {"os_name": instance.os_name} if instance.os_name else {}
+
+        if instance.os_name:
+            os_lower = instance.os_name.lower()
+            if "ubuntu" in os_lower:
+                default_user = "ubuntu"
+            elif "debian" in os_lower:
+                default_user = "debian"
+            elif "rocky" in os_lower:
+                default_user = "rocky"
+            elif "alpine" in os_lower:
+                default_user = "alpine"
+
+            # cloud-config: 비밀번호 SSH 접속 활성화 + 기본 유저 비밀번호 설정
+            userdata_payload = (
+                f"#cloud-config\n"
+                f"ssh_pwauth: true\n"
+                f"chpasswd:\n"
+                f"  list: |\n"
+                f"    {default_user}:{default_password}\n"
+                f"  expire: false\n"
+                f"runcmd:\n"
+                f"  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n"
+                f"  - sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config\n"
+                f"  - sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config\n"
+                f"  - if command -v systemctl > /dev/null; then systemctl restart sshd; elif command -v rc-service > /dev/null; then rc-service sshd restart; else service sshd restart; fi\n"
+            )
+            instance_meta["default_user"] = default_user
+            instance_meta["default_password"] = default_password
+
         if instance.volume_size:
             if not instance.image_id:
                 raise ValueError("Image ID required for bootable volume.")
@@ -304,7 +338,8 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
                 net_id=instance.network_id,
                 key_name=instance.key_name,
                 security_groups=["all-internal-allow"],
-                meta={"os_name": instance.os_name} if instance.os_name else None,
+                meta=instance_meta,
+                userdata=userdata_payload,
             )
             LOG.info(
                 f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}, 볼륨ID: {volume.id}"
@@ -322,7 +357,8 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
                 net_id=instance.network_id,
                 key_name=instance.key_name,
                 security_groups=["all-internal-allow"],
-                meta={"os_name": instance.os_name} if instance.os_name else None,
+                meta=instance_meta,
+                userdata=userdata_payload,
             )
             LOG.info(
                 f"[인스턴스 생성 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}"
@@ -371,10 +407,12 @@ def get_instance(
             if internal_ip:
                 break
 
-        # OS 정보 추가
+        # OS 정보 및 초기 자격 증명 추가
         if server.metadata:
             try:
-                server_dict["os_name"] = server.metadata.get("os_name")
+                server_dict["os_name"] = server.metadata.get("os_name", "Unknown")
+                server_dict["default_user"] = server.metadata.get("default_user")
+                server_dict["default_password"] = server.metadata.get("default_password")
             except Exception as e:
                 LOG.warning(f"Failed to get OS info for instance {instance_id}: {e}")
                 server_dict["os_name"] = "Unknown"
@@ -652,7 +690,7 @@ async def delete_instance(
                         LOG.warning(
                             f"[외부 포트포워딩 삭제 실패] rule_id: {ext_pf.get('id')}, 오류: {ext_err}"
                         )
-                LOG.info(f"[외부 포트포워딩 정리] 완료")
+                LOG.info("[외부 포트포워딩 정리] 완료")
         except Exception as e:
             LOG.warning(f"인스턴스 삭제 전 외부 포트포워딩 정리 중 오류 발생: {e}")
 
@@ -681,7 +719,7 @@ async def delete_instance(
                             LOG.warning(
                                 f"Neutron 포트포워딩 규칙 삭제 실패 (ID: {pf.get('id')}): {ignore}"
                             )
-                    LOG.info(f"[Neutron 포트포워딩 정리] 완료")
+                    LOG.info("[Neutron 포트포워딩 정리] 완료")
         except Exception as e:
             LOG.warning(f"인스턴스 삭제 전 Neutron 포트포워딩 정리 중 오류 발생: {e}")
 
@@ -776,7 +814,7 @@ def attach_volume(
     """
     session = utils.generate_session(profile)
     try:
-        result = nova.attach_volume_to_server(
+        nova.attach_volume_to_server(
             session=session,
             profile=profile,
             server_id=instance_id,
