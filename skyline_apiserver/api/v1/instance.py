@@ -275,9 +275,9 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
     try:
         default_user = "cloud-user"
         default_password = secrets.token_urlsafe(12)
-        userdata_payload = None
         instance_meta = {"os_name": instance.os_name} if instance.os_name else {}
 
+        # OS별 기본 유저 매핑
         if instance.os_name:
             os_lower = instance.os_name.lower()
             if "ubuntu" in os_lower:
@@ -289,22 +289,36 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
             elif "alpine" in os_lower:
                 default_user = "alpine"
 
-            # cloud-config: 비밀번호 SSH 접속 활성화 + 기본 유저 비밀번호 설정
-            userdata_payload = (
-                f"#cloud-config\n"
-                f"ssh_pwauth: true\n"
-                f"chpasswd:\n"
-                f"  list: |\n"
-                f"    {default_user}:{default_password}\n"
-                f"  expire: false\n"
-                f"runcmd:\n"
-                f"  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n"
-                f"  - sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config\n"
-                f"  - sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config\n"
-                f"  - if command -v systemctl > /dev/null; then systemctl restart sshd; elif command -v rc-service > /dev/null; then rc-service sshd restart; else service sshd restart; fi\n"
-            )
-            instance_meta["default_user"] = default_user
-            instance_meta["default_password"] = default_password
+        # OS 무관하게 항상 비밀번호 SSH 활성화 userdata 적용
+        # Ubuntu 등은 /etc/ssh/sshd_config.d/ override 파일이
+        # PasswordAuthentication no를 강제하므로 write_files로 덮어씀
+        userdata_payload = (
+            f"#cloud-config\n"
+            f"ssh_pwauth: true\n"
+            f"chpasswd:\n"
+            f"  list: |\n"
+            f"    {default_user}:{default_password}\n"
+            f"  expire: false\n"
+            f"write_files:\n"
+            f"  - path: /etc/ssh/sshd_config.d/99-password-auth.conf\n"
+            f"    content: |\n"
+            f"      PasswordAuthentication yes\n"
+            f"      KbdInteractiveAuthentication yes\n"
+            f"      ChallengeResponseAuthentication yes\n"
+            f"    owner: root:root\n"
+            f"    permissions: '0644'\n"
+            f"runcmd:\n"
+            f"  # sshd_config 본체도 수정 (override 디렉터리가 없는 구형 OS 대비)\n"
+            f"  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n"
+            f"  - sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config\n"
+            f"  - sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config\n"
+            f"  # sshd_config.d 내 기존 override 파일도 일괄 처리\n"
+            f"  - for f in /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] && sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' \"$f\"; done\n"
+            f"  # sshd 재시작 (systemd / OpenRC / SysV 모두 대응)\n"
+            f"  - if command -v systemctl > /dev/null 2>&1; then systemctl restart sshd || systemctl restart ssh; elif command -v rc-service > /dev/null 2>&1; then rc-service sshd restart; else service sshd restart 2>/dev/null || service ssh restart; fi\n"
+        )
+        instance_meta["default_user"] = default_user
+        instance_meta["default_password"] = default_password
 
         if instance.volume_size:
             if not instance.image_id:
