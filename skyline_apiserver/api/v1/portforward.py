@@ -44,7 +44,7 @@ def _handle_client_error(e: PortForwardClientError):
 
 # ===== 정적 경로 (먼저 정의 - FastAPI 라우팅 우선순위) =====
 
-@router.get("/portforward/health", tags=["Network"])
+@router.get("/health", tags=["Network"])
 async def health_check():
     """외부 포트포워딩 서비스 헬스 체크"""
     try:
@@ -54,7 +54,7 @@ async def health_check():
         _handle_client_error(e)
 
 
-@router.get("/portforward/status", response_model=StatusResponse, tags=["Network"])
+@router.get("/status", response_model=StatusResponse, tags=["Network"])
 async def get_status(
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
@@ -66,7 +66,7 @@ async def get_status(
         _handle_client_error(e)
 
 
-@router.get("/portforward/floating-ips", response_model=List[FloatingIPStatus], tags=["Network"])
+@router.get("/floating-ips", response_model=List[FloatingIPStatus], tags=["Network"])
 async def get_floating_ips(
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
@@ -78,7 +78,7 @@ async def get_floating_ips(
         _handle_client_error(e)
 
 
-@router.get("/portforward/port-allocation/preview", response_model=PortAllocationResponse, tags=["Network"])
+@router.get("/port-allocation/preview", response_model=PortAllocationResponse, tags=["Network"])
 async def preview_port_allocation(
     service_type: ServiceTypeEnum = Query(ServiceTypeEnum.other, description="서비스 유형"),
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
