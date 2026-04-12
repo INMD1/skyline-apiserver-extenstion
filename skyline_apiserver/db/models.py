@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, DateTime
+from sqlalchemy import JSON, Boolean, Column, Integer, MetaData, String, Table, DateTime
 
 METADATA = MetaData()
 
@@ -47,4 +47,27 @@ UserActivity = Table(
     Column("token", String(length=256), nullable=False),
     Column("timestamp", Integer, nullable=False),
     Column("created_at", DateTime, nullable=True),
+)
+
+# 인스턴스 라이프사이클(수명 관리) 테이블
+# - 인스턴스별 생성일, 만료일, 이메일 발송 상태, 연장 여부를 추적합니다.
+InstanceLifecycle = Table(
+    "instance_lifecycle",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("instance_id", String(length=64), nullable=False, index=True, unique=True),
+    Column("instance_name", String(length=255), nullable=True),
+    Column("user_id", String(length=64), nullable=False),
+    Column("project_id", String(length=64), nullable=False),
+    Column("user_email", String(length=255), nullable=True),
+    # 인스턴스 생성 시각 (Unix timestamp)
+    Column("created_at", Integer, nullable=False),
+    # 다음 만료 예정 시각 (Unix timestamp) - 연장 시 갱신됨
+    Column("expires_at", Integer, nullable=False),
+    # 이메일 발송 상태: none | sent | extended | deleted
+    Column("email_status", String(length=32), nullable=False, default="none"),
+    # 이메일 발송 시각 (Unix timestamp)
+    Column("email_sent_at", Integer, nullable=True),
+    # 사용자가 연장 확인을 완료했는지 여부
+    Column("extended", Boolean, nullable=False, default=False),
 )

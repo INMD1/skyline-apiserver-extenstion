@@ -42,5 +42,9 @@ class NotFoundMessage(ErrorMessageBase):
     """"""
 
 
+class ConflictMessage(ErrorMessageBase):
+    """"""
+
+
 class InternalServerErrorMessage(ErrorMessageBase):
     """"""

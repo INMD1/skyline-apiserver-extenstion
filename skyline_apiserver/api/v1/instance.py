@@ -383,6 +383,33 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
             server.id, instance.name, profile, instance.additional_ports
         )
 
+        # 인스턴스 라이프사이클 레코드 등록 (수명 관리 기능이 켜져 있을 때)
+        # admin 프로젝트 인스턴스는 예외 처리
+        try:
+            from skyline_apiserver.config import CONF as _CONF
+            lc_enabled_row = db_api.get_setting("instance_lifecycle_enabled")
+            lc_enabled = lc_enabled_row.value if lc_enabled_row else _CONF.setting.instance_lifecycle_enabled
+            is_admin_project = (profile.project.name == _CONF.openstack.system_project)
+            if lc_enabled and not is_admin_project:
+                import time as _time
+                lifetime_row = db_api.get_setting("instance_lifetime_days")
+                lifetime_days = int(lifetime_row.value if lifetime_row else _CONF.setting.instance_lifetime_days)
+                now_ts = int(_time.time())
+                db_api.create_instance_lifecycle(
+                    instance_id=server.id,
+                    instance_name=instance.name,
+                    user_id=profile.user.id,
+                    project_id=profile.project.id,
+                    user_email=getattr(profile.user, "email", "") or "",
+                    created_at=now_ts,
+                    expires_at=now_ts + lifetime_days * 86400,
+                )
+                LOG.info(f"[Lifecycle] 라이프사이클 레코드 생성: instance={server.id}, lifetime={lifetime_days}일")
+            elif is_admin_project:
+                LOG.info(f"[Lifecycle] admin 프로젝트 인스턴스 — 수명 관리 제외: instance={server.id}")
+        except Exception as lc_exc:
+            LOG.warning(f"[Lifecycle] 라이프사이클 레코드 생성 실패 (무시): {lc_exc}")
+
         # 성공 기록 (DB 업데이트 같은 것)
         LOG.info(f"[프로비저닝 완료] 요청ID: {request_id}, 인스턴스ID: {server.id}")
 
@@ -766,6 +793,12 @@ async def delete_instance(
                 instance_id,
                 volume_ids,
             )
+
+        # 4. 라이프사이클 레코드 정리
+        try:
+            db_api.delete_instance_lifecycle(instance_id)
+        except Exception as lc_exc:
+            LOG.warning(f"[Lifecycle] 라이프사이클 레코드 삭제 실패 (무시): {lc_exc}")
 
         return
     except Exception as e:

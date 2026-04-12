@@ -16,6 +16,7 @@
 - [프로젝트 구조](#-프로젝트-구조)
 - [개발 가이드](#-개발-가이드)
 - [트러블슈팅](#-트러블슈팅)
+- [변경 이력](#-변경-이력)
 
 ---
 
@@ -135,7 +136,43 @@ GET  /api/v1/sso                        # SSO 설정 조회
 - Keystone 토큰 지원
 - 자동 토큰 갱신 (1800초)
 
-### 5️⃣ 모니터링 및 성능 📊
+### 5️⃣ 인스턴스 라이프사이클 관리 (수명 자동화) ⏰
+
+인스턴스가 설정된 기간(기본 30일) 이상 운영되면 자동으로 이메일을 발송하고, 지정 기한 내 응답이 없으면 인스턴스를 자동 삭제합니다.
+
+```
+GET  /api/v1/instances/{id}/lifecycle  # 수명 상태 조회
+POST /api/v1/instances/{id}/extend     # 사용 기간 30일 연장
+```
+
+**동작 흐름:**
+```
+인스턴스 생성 → [30일 후] → 이메일 발송 → [7일 내 응답 없으면] → 자동 삭제
+                                              ↓ 연장 버튼 클릭
+                                         기간 30일 추가 연장
+```
+
+**설정 방법** (`skyline.yaml`):
+```yaml
+setting:
+  instance_lifecycle_enabled: true   # 기능 on/off
+  instance_lifetime_days: 30         # 운영 기간(일)
+  instance_reply_deadline_days: 7    # 이메일 응답 기한(일)
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  smtp_user: your@gmail.com
+  smtp_password: 앱비밀번호
+  smtp_use_tls: true
+  smtp_from_address: noreply@yourdomain.com
+```
+
+**특징:**
+- ✅ 관리자 설정 UI에서 on/off 및 SMTP 설정 가능
+- ✅ API로도 즉시 변경 가능 (`PUT /api/v1/setting`)
+- ✅ 1시간마다 백그라운드에서 자동 검사
+- ✅ DB 마이그레이션: `alembic -c skyline_apiserver/db/alembic/alembic.ini upgrade head`
+
+### 6️⃣ 모니터링 및 성능 📊
 
 ```
 GET /api/v1/instances/{id}/performance  # 인스턴스 성능 데이터
@@ -143,7 +180,7 @@ GET /api/v1/query                        # Prometheus 쿼리
 GET /api/v1/query_range                  # Prometheus 범위 쿼리
 ```
 
-### 6️⃣ 활동 로깅 📝
+### 7️⃣ 활동 로깅 📝
 
 ```
 GET /api/v1/projectlogs  # 프로젝트별 활동 로그 (한국어)
@@ -271,9 +308,11 @@ openstack:
 ### 3. 데이터베이스 마이그레이션
 
 ```bash
-# Alembic을 사용한 DB 스키마 생성
-make db_sync
+# Alembic을 사용한 DB 스키마 생성/업데이트
+alembic -c skyline_apiserver/db/alembic/alembic.ini upgrade head
 ```
+
+> **주의:** `alembic upgrade head`만 입력하면 `No 'script_location' key found` 오류가 발생합니다. 반드시 `-c` 플래그로 ini 파일 경로를 지정해야 합니다.
 
 ### 4. 실행
 
@@ -369,13 +408,38 @@ setting:
   base_settings:
     - flavor_families
     - gpu_models
-  
+    - usb_models
+    - instance_lifecycle_enabled   # 인스턴스 수명 관리 기능
+    - instance_lifetime_days
+    - instance_reply_deadline_days
+    - smtp_host
+    - smtp_port
+    - smtp_user
+    - smtp_password
+    - smtp_use_tls
+    - smtp_from_address
+
+  # 인스턴스 수명 관리
+  instance_lifecycle_enabled: false  # true로 변경하면 기능 활성화
+  instance_lifetime_days: 30         # 운영 기간(일)
+  instance_reply_deadline_days: 7    # 이메일 응답 기한(일)
+
+  # SMTP 이메일 설정
+  smtp_host: ''           # 예: smtp.gmail.com
+  smtp_port: 587
+  smtp_user: ''
+  smtp_password: ''       # Gmail 앱 비밀번호 등
+  smtp_use_tls: true
+  smtp_from_address: ''
+
   flavor_families:
     - architecture: x86_architecture
       categories:
         - name: general_purpose
           properties: []
 ```
+
+> **참고:** `smtp_password`는 보안을 위해 API 응답에서 숨김 처리됩니다 (`hidden: true`).
 
 ### 환경 변수
 
@@ -470,6 +534,7 @@ skyline-apiserver-extenstion/
 │   │       ├── __init__.py         # API 라우터 등록
 │   │       ├── login.py            # 인증 (로그인/회원가입/SSO)
 │   │       ├── instance.py         # 인스턴스 관리 (생성/삭제/시작/정지)
+│   │       ├── lifecycle.py        # 인스턴스 수명 관리 (연장/상태 조회)
 │   │       ├── portforward.py      # 포트포워딩 (Proxy API 연동)
 │   │       ├── extension.py        # 확장 API (서버/볼륨 목록)
 │   │       ├── flavor.py           # Flavor 관리
@@ -498,8 +563,12 @@ skyline-apiserver-extenstion/
 │   │
 │   ├── db/                         # 데이터베이스
 │   │   ├── api.py                  # DB API
-│   │   ├── models.py               # SQLAlchemy 모델
+│   │   ├── models.py               # SQLAlchemy 모델 (InstanceLifecycle 포함)
 │   │   └── alembic/                # 마이그레이션
+│   │       └── versions/
+│   │           ├── 000_init.py
+│   │           ├── 001_add_user_details_table.py
+│   │           └── 002_add_instance_lifecycle_table.py
 │   │
 │   ├── schemas/                    # Pydantic 스키마
 │   │   ├── login.py                # 로그인 요청/응답
@@ -510,6 +579,8 @@ skyline-apiserver-extenstion/
 │   ├── policy/                     # 권한 정책
 │   ├── log/                        # 로깅
 │   ├── utils/                      # 유틸리티
+│   │   ├── email.py                # SMTP 이메일 발송 (라이프사이클 알림)
+│   │   └── lifecycle_scheduler.py  # 1시간 주기 수명 검사 스케줄러
 │   └── types/                      # 타입 정의
 │
 ├── etc/                            # 설정 파일
@@ -642,14 +713,14 @@ api_router.include_router(
 ### 데이터베이스 마이그레이션
 
 ```bash
-# 새 마이그레이션 생성
-alembic revision --autogenerate -m "Add new table"
+# 마이그레이션 적용 (반드시 -c 플래그 사용)
+alembic -c skyline_apiserver/db/alembic/alembic.ini upgrade head
 
-# 마이그레이션 적용
-alembic upgrade head
+# 현재 버전 확인
+alembic -c skyline_apiserver/db/alembic/alembic.ini current
 
-# 롤백
-alembic downgrade -1
+# 이전 버전으로 롤백
+alembic -c skyline_apiserver/db/alembic/alembic.ini downgrade -1
 ```
 
 ### 테스트 작성
@@ -748,6 +819,62 @@ DEBUG:skyline_apiserver:Request path: /api/v1/instances
 ---
 
 ## 📝 변경 이력
+
+### 2026-04-12: 인스턴스 라이프사이클 수명 관리 기능 추가
+
+인스턴스가 일정 기간(기본 30일) 이상 운영되면 이메일을 발송하고, 응답 없으면 자동 삭제하는 기능이 추가되었습니다.
+
+**추가된 파일:**
+
+| 파일 | 설명 |
+|------|------|
+| `skyline_apiserver/api/v1/lifecycle.py` | 라이프사이클 조회/연장 API |
+| `skyline_apiserver/utils/email.py` | SMTP 이메일 발송 유틸 |
+| `skyline_apiserver/utils/lifecycle_scheduler.py` | 1시간 주기 백그라운드 스케줄러 |
+| `skyline_apiserver/db/alembic/versions/002_add_instance_lifecycle_table.py` | DB 마이그레이션 |
+
+**수정된 파일:**
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `db/models.py` | `InstanceLifecycle` 테이블 추가 |
+| `db/api.py` | 라이프사이클 CRUD 함수 추가 |
+| `config/setting.py` | 이메일/수명 관련 설정 10개 추가 |
+| `types/constants.py` | `smtp_password` hidden 처리 |
+| `api/v1/instance.py` | 인스턴스 생성 시 레코드 등록, 삭제 시 정리 |
+| `api/v1/__init__.py` | lifecycle 라우터 등록 |
+| `main.py` | 앱 시작 시 스케줄러 백그라운드 태스크 등록 |
+| `schemas/common.py` | `ConflictMessage` 추가 |
+| `etc/skyline.yaml.sample` | 라이프사이클/SMTP 설정 항목 추가 |
+
+**신규 API:**
+
+```
+GET  /api/v1/instances/{id}/lifecycle  # 수명 상태 조회
+POST /api/v1/instances/{id}/extend     # 30일 연장
+```
+
+**신규 설정 키 (`skyline.yaml`):**
+
+```yaml
+setting:
+  instance_lifecycle_enabled: false  # 기능 on/off (기본값: 비활성화)
+  instance_lifetime_days: 30
+  instance_reply_deadline_days: 7
+  smtp_host: ''
+  smtp_port: 587
+  smtp_user: ''
+  smtp_password: ''
+  smtp_use_tls: true
+  smtp_from_address: ''
+```
+
+**마이그레이션:**
+```bash
+alembic -c skyline_apiserver/db/alembic/alembic.ini upgrade head
+```
+
+---
 
 ### 2026-02-10: Floating IP 설정 필드 제거
 

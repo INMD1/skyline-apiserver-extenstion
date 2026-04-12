@@ -78,6 +78,35 @@ setting:
   - flavor_families
   - gpu_models
   - usb_models
+  - instance_lifecycle_enabled
+  - instance_lifetime_days
+  - instance_reply_deadline_days
+  - smtp_host
+  - smtp_port
+  - smtp_user
+  - smtp_password
+  - smtp_use_tls
+  - smtp_from_address
+
+  # ── 인스턴스 라이프사이클 설정 ──────────────────────────────────────────
+  # true 로 바꾸면 인스턴스 수명 관리 기능이 활성화됩니다.
+  instance_lifecycle_enabled: false
+
+  # 인스턴스 최대 운영 기간(일). 이 기간이 지나면 이메일을 발송합니다.
+  instance_lifetime_days: 30
+
+  # 이메일 발송 후 사용자가 연장 버튼을 눌러야 하는 기한(일).
+  # 이 기간 내 응답 없으면 인스턴스가 자동 삭제됩니다.
+  instance_reply_deadline_days: 7
+
+  # ── SMTP 이메일 설정 ─────────────────────────────────────────────────────
+  smtp_host: ''           # 예: smtp.gmail.com
+  smtp_port: 587
+  smtp_user: ''           # 예: your@gmail.com
+  smtp_password: ''       # Gmail 앱 비밀번호 등
+  smtp_use_tls: true
+  smtp_from_address: ''   # 예: noreply@yourdomain.com
+
   flavor_families:
   - architecture: x86_architecture
     categories:

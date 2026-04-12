@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
@@ -63,8 +64,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "before deploying to production."
         )
 
+    # 인스턴스 라이프사이클 스케줄러 백그라운드 태스크 시작
+    from skyline_apiserver.utils.lifecycle_scheduler import start_lifecycle_scheduler
+    scheduler_task = asyncio.create_task(start_lifecycle_scheduler())
+
     LOG.debug("Skyline API server start")
     yield
+
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
     LOG.debug("Skyline API server stop")
 
 
