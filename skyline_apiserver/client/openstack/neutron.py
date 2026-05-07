@@ -31,7 +31,7 @@ from skyline_apiserver.config import CONF
 
 import httpx
 from skyline_apiserver.schemas.portforward import PortForwardRequest
-from skyline_apiserver.config import CONF, setting
+from skyline_apiserver.client.utils import get_system_session
 
 
 # This function is used by the /portforward endpoint and should be kept.
@@ -150,7 +150,6 @@ def delete_port_forwarding_rule(
     session: Session, region: str, floatingip_id: str, pf_id: str
 ):
     # 시스템 세션 사용 (다른 프로젝트의 floating IP 접근을 위해)
-    from skyline_apiserver.client.utils import get_system_session
     system_session = get_system_session()
     nc = utils.neutron_client(session=system_session, region=region)
     # DELETE /v2.0/floatingips/{floatingip_id}/port_forwardings/{port_forwarding_id}
@@ -174,7 +173,6 @@ def get_port_forwardings_by_internal_ip(
     시스템 세션을 사용하여 다른 프로젝트의 floating IP도 조회합니다.
     """
     # 시스템 세션 사용 (공유 floating IP 조회를 위해)
-    from skyline_apiserver.client.utils import get_system_session
     system_session = get_system_session()
     nc = utils.neutron_client(session=system_session, region=region)
     

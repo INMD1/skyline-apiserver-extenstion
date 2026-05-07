@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -40,10 +42,12 @@ from skyline_apiserver.types import constants
 
 PROJECT_NAME = "Skyline API"
 
+# Load config at module level so CONF is available for middleware setup
+configure("skyline")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    configure("skyline")
     log_setup(
         Path(CONF.default.log_dir).joinpath(CONF.default.log_file),
         debug=CONF.default.debug,
@@ -60,21 +64,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "before deploying to production."
         )
 
-    # Set all CORS enabled origins
-    if CONF.default.cors_allow_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=[str(origin) for origin in CONF.default.cors_allow_origins],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+    # 인스턴스 라이프사이클 스케줄러 백그라운드 태스크 시작
+    from skyline_apiserver.utils.lifecycle_scheduler import start_lifecycle_scheduler
+    scheduler_task = asyncio.create_task(start_lifecycle_scheduler())
+
     LOG.debug("Skyline API server start")
     yield
+
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
     LOG.debug("Skyline API server stop")
 
-
-import os
 
 # 프로덕션 환경에서는 Swagger 문서 비활성화
 _is_production = os.getenv("SKYLINE_ENV", "development").lower() == "production"
@@ -86,6 +89,20 @@ app = FastAPI(
     redoc_url=None if _is_production else "/redoc",
     lifespan=lifespan,
 )
+
+# Add CORS middleware at module level (must be before app starts)
+_nextjs_url = os.environ.get("NEXTJS_URL", "http://localhost:3000")
+_cors_origins = [str(origin) for origin in CONF.default.cors_allow_origins]
+if _nextjs_url not in _cors_origins:
+    _cors_origins.append(_nextjs_url)
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.middleware("http")
@@ -154,8 +171,11 @@ async def validate_token(request: Request, call_next):
                 content={"detail": "Invalid token"},
             )
         except Exception as e:
-            LOG.debug(f"Cookie token validation failed: {e}")
-            # Cookie validation failed; endpoint-level Bearer token auth will handle auth
+            LOG.warning(f"Cookie token validation failed: {type(e).__name__}: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Session expired or invalid. Please log in again."},
+            )
 
     response = await call_next(request)
 

@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from skyline_apiserver import schemas
 from skyline_apiserver.api import deps
-from skyline_apiserver.client import utils
+from skyline_apiserver.client import utils, portforward_client
 from skyline_apiserver.client.openstack import nova, cinder, neutron
 from typing import Optional
 from skyline_apiserver.types import constants
@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 @router.get("/limits", response_model=schemas.LimitSummary)
-def get_limit_summary(
+async def get_limit_summary(
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
     x_openstack_request_id: Optional[str] = Header(
         None,
@@ -52,10 +52,17 @@ def get_limit_summary(
 
         neutron_floatingips = neutron.list_floatingips(session, profile, global_request_id=x_openstack_request_id, tenant_id=profile.project.id)
         floatingips_used = len(neutron_floatingips['floatingips'])
+
+        # 포트포워딩 사용량: 외부 Proxy API에서 현재 프로젝트 VM 기준으로 집계
         port_forwardings_used = 0
-        for fip in neutron_floatingips['floatingips']:
-            pfs = neutron.get_port_forwarding_rules(session, profile.region, fip['id'])
-            port_forwardings_used += len(pfs)
+        try:
+            vm_ids = [s.id for s in nova_servers]
+            for vm_id in vm_ids:
+                rules = await portforward_client.get_portforwardings_by_vm(vm_id)
+                port_forwardings_used += len(rules)
+        except Exception:
+            # 외부 API 오류 시 0으로 표시 (limits 전체를 실패시키지 않음)
+            port_forwardings_used = 0
 
         neutron_networks = neutron.list_networks(session, profile, global_request_id=x_openstack_request_id, tenant_id=profile.project.id)
         networks_used = len(neutron_networks['networks'])
@@ -82,7 +89,7 @@ def get_limit_summary(
             "router": {"in_use": routers_used, "limit": neutron_quotas.get('router', -1)},
             "subnet": {"in_use": subnets_used, "limit": neutron_quotas.get('subnet', -1)},
             "security_group": {"in_use": security_groups_used, "limit": neutron_quotas.get('security_group', -1)},
-            "security_group_rule": {"in_use": -1, "limit": neutron_quotas.get('security_group_rule', -1)}, # security_group_rule usage is not easy to calculate
+            "security_group_rule": {"in_use": -1, "limit": neutron_quotas.get('security_group_rule', -1)},
         }
         return schemas.LimitSummary(quotas=quotas)
 

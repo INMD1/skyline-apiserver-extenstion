@@ -233,17 +233,17 @@ DELETE /api/v1/portforward/{rule_id}
 
 ### 시스템 상태 조회
 ```http
-GET /api/v1/portforward/status
+GET /api/v1/status
 ```
 
 ### Floating IP 상태 조회
 ```http
-GET /api/v1/portforward/floating-ips
+GET /api/v1/floating-ips
 ```
 
 ### 포트 할당 미리보기
 ```http
-GET /api/v1/portforward/port-allocation/preview?service_type=ssh
+GET /api/v1/port-allocation/preview?service_type=ssh
 ```
 
 ---

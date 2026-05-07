@@ -82,9 +82,11 @@ class FloatingIPStatus(BaseModel):
     ip: str
     role: str
     active_rules: int
+    total_rules: int = Field(default=0, description="전체 규칙 수")
     max_rules: int
     usage_percent: float
     available_ports: int
+    port_range: List[int] = Field(default_factory=list, description="포트 범위 [min, max]")
     ports: List[int]
 
 

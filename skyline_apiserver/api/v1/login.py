@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import PurePath
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import status
@@ -146,7 +148,6 @@ def _get_projects_and_unscope_token(
         projects_data = resp.json().get("projects", [])
 
     # Convert to objects similar to what KeystoneClient returns
-    from types import SimpleNamespace
     project_scope = [
         SimpleNamespace(
             id=p["id"],
@@ -379,20 +380,22 @@ def websso(
             detail="SSO authentication failed",
         )
     else:
-        response = RedirectResponse(url="/base/overview", status_code=status.HTTP_302_FOUND)
+        nextjs_url = os.environ.get("NEXTJS_URL", "http://localhost:3000")
+        redirect_url = f"{nextjs_url}/auth/sso-callback"
+        response = RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
         response.set_cookie(
             CONF.default.session_name,
             profile.toJWTPayload(),
             httponly=True,
             secure=CONF.default.ssl_enabled,
-            samesite="strict",
+            samesite="lax",
         )
         response.set_cookie(
             constants.TIME_EXPIRED_KEY,
             str(profile.exp),
             httponly=False,
             secure=CONF.default.ssl_enabled,
-            samesite="strict",
+            samesite="lax",
         )
         return response
 
