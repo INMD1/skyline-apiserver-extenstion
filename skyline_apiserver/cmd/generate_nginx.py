@@ -23,7 +23,7 @@ from typing import Dict
 from urllib.parse import urlparse
 
 import click
-from jinja2 import Environment, Template
+from jinja2 import Environment, select_autoescape
 from keystoneauth1.identity.v3 import Password
 from keystoneauth1.session import Session
 from keystoneclient.client import Client as KeystoneClient
@@ -57,7 +57,7 @@ def get_system_session() -> Session:
         project_domain_name=CONF.openstack.system_project_domain,
         reauthenticate=True,
     )
-    return Session(auth=auth, verify=CONF.default.cafile, timeout=30)
+    return Session(auth=auth, verify=CONF.default.cafile or True, timeout=30)
 
 
 def get_proxy_endpoints() -> Dict[str, ProxyEndpoint]:
@@ -197,7 +197,7 @@ def main(
         content = ""
         with template_file_path.open() as f:
             content = f.read()
-        env = Environment()
+        env = Environment(autoescape=select_autoescape(default_for_string=False))
         env.filters["dirname"] = dirname
         template = env.from_string(content)
 

@@ -19,27 +19,70 @@ import time
 import uuid
 from typing import Optional
 
+import jwt
 from fastapi import status
 from fastapi.exceptions import HTTPException
-from jose import jwt
+from starlette.responses import Response
 
 from skyline_apiserver import schemas, version
-from skyline_apiserver.client import utils
+
 # from skyline_apiserver.client.openstack.keystone import get_user
 from skyline_apiserver.client.utils import get_system_session
 from skyline_apiserver.config import CONF
-from skyline_apiserver.db import api as db_api
 from skyline_apiserver.log import LOG
+from skyline_apiserver.types import constants
 
 
-def parse_access_token(token: str) -> (schemas.Payload):
-    payload = jwt.decode(token, CONF.default.secret_key, algorithms=["HS256"])
+def parse_access_token(token: str) -> schemas.Payload:
+    payload = jwt.decode(
+        token,
+        CONF.default.secret_key,
+        algorithms=[constants.ALGORITHM],
+        options={"require": ["exp", "keystone_token", "region", "uuid"]},
+    )
     return schemas.Payload(
         keystone_token=payload["keystone_token"],
         region=payload["region"],
         exp=payload["exp"],
         uuid=payload["uuid"],
     )
+
+
+def set_session_cookies(
+    response: Response,
+    token: str,
+    expires_at: int,
+    *,
+    samesite: str = "strict",
+) -> None:
+    """Set both session cookies with consistent security attributes."""
+    response.set_cookie(
+        CONF.default.session_name,
+        token,
+        httponly=True,
+        secure=CONF.default.ssl_enabled,
+        samesite=samesite,
+        path="/",
+    )
+    response.set_cookie(
+        constants.TIME_EXPIRED_KEY,
+        str(expires_at),
+        httponly=False,
+        secure=CONF.default.ssl_enabled,
+        samesite=samesite,
+        path="/",
+    )
+
+
+def clear_session_cookies(response: Response) -> None:
+    response.delete_cookie(
+        CONF.default.session_name,
+        path="/",
+        secure=CONF.default.ssl_enabled,
+        httponly=True,
+        samesite="strict",
+    )
+    response.delete_cookie(constants.TIME_EXPIRED_KEY, path="/")
 
 
 def generate_profile_by_token(token: schemas.Payload) -> schemas.Profile:
@@ -59,6 +102,7 @@ def generate_profile(
 ) -> schemas.Profile:
     try:
         from skyline_apiserver.client.openstack.keystone import get_token_data, get_user
+
         system_session = get_system_session()
         token_data = get_token_data(token=keystone_token, region=region, session=system_session)
         user_id = token_data["token"]["user"]["id"]

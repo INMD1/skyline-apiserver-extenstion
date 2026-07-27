@@ -21,7 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from skyline_apiserver import schemas
 from skyline_apiserver.api import deps
-from skyline_apiserver.client import portforward_client
+from skyline_apiserver.client import portforward_client, utils
+from skyline_apiserver.client.openstack import nova
 from skyline_apiserver.client.portforward_client import PortForwardClientError
 from skyline_apiserver.schemas.portforward import (
     FloatingIPStatus,
@@ -32,7 +33,7 @@ from skyline_apiserver.schemas.portforward import (
     ServiceTypeEnum,
     StatusResponse,
 )
-
+from skyline_apiserver.utils.roles import is_system_admin
 
 router = APIRouter()
 
@@ -42,7 +43,42 @@ def _handle_client_error(e: PortForwardClientError):
     raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
+def _get_owned_server(profile: schemas.Profile, vm_id: str):
+    """Return a VM only when it belongs to the current project."""
+    session = utils.generate_session(profile)
+    try:
+        server = nova.get_server(session, profile, vm_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="VM not found")
+
+    owner_id = getattr(server, "tenant_id", None) or getattr(server, "project_id", None)
+    if owner_id and owner_id != profile.project.id and not is_system_admin(profile):
+        raise HTTPException(status_code=403, detail="VM does not belong to this project")
+    return server
+
+
+def _assert_rule_access(profile: schemas.Profile, rule: dict) -> None:
+    if is_system_admin(profile):
+        return
+    vm_id = rule.get("user_vm_id")
+    if not vm_id:
+        raise HTTPException(status_code=403, detail="Rule ownership cannot be verified")
+    _get_owned_server(profile, vm_id)
+
+
+def _project_server_ids(profile: schemas.Profile) -> set[str]:
+    session = utils.generate_session(profile)
+    servers = nova.list_servers(
+        profile=profile,
+        session=session,
+        global_request_id="",
+        search_opts={"project_id": profile.project.id},
+    )
+    return {server.id for server in servers}
+
+
 # ===== 정적 경로 (먼저 정의 - FastAPI 라우팅 우선순위) =====
+
 
 @router.get("/health", tags=["Network"])
 async def health_check():
@@ -85,20 +121,25 @@ async def preview_port_allocation(
 ):
     """포트 할당 미리보기"""
     try:
-        result = await portforward_client.preview_port_allocation(service_type.value, None)  # 설정 파일의 키 사용
+        result = await portforward_client.preview_port_allocation(
+            service_type.value, None
+        )  # 설정 파일의 키 사용
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
 
 
-@router.get("/portforward/vm/{vm_id}", response_model=List[PortForwardingResponse], tags=["Network"])
+@router.get(
+    "/portforward/vm/{vm_id}", response_model=List[PortForwardingResponse], tags=["Network"]
+)
 async def get_portforwardings_by_vm(
     vm_id: str,
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
     """VM별 포트포워딩 규칙 조회"""
     try:
-        result = await portforward_client.get_portforwardings_by_vm(vm_id, None)  # 설정 파일의 키 사용
+        _get_owned_server(profile, vm_id)
+        result = await portforward_client.get_portforwardings_by_vm(vm_id, None)
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -106,14 +147,34 @@ async def get_portforwardings_by_vm(
 
 # ===== 포트포워딩 CRUD =====
 
-@router.post("/portforward", response_model=PortForwardingResponse, status_code=201, tags=["Network"])
+
+@router.post(
+    "/portforward", response_model=PortForwardingResponse, status_code=201, tags=["Network"]
+)
 async def create_portforwarding(
     request: PortForwardingCreate,
     profile: schemas.Profile = Depends(deps.get_profile_from_header),
 ):
     """포트포워딩 규칙 생성"""
     try:
-        result = await portforward_client.create_portforwarding(request, None)  # 설정 파일의 키 사용
+        server = _get_owned_server(profile, request.user_vm_id)
+        internal_ips = {
+            address.get("addr")
+            for addresses in getattr(server, "addresses", {}).values()
+            for address in addresses
+            if address.get("OS-EXT-IPS:type") == "fixed"
+        }
+        if request.user_vm_internal_ip not in internal_ips:
+            raise HTTPException(
+                status_code=400,
+                detail="Internal IP does not belong to the selected VM",
+            )
+        if request.user_vm_name != server.name:
+            raise HTTPException(
+                status_code=400,
+                detail="VM name does not match the selected VM",
+            )
+        result = await portforward_client.create_portforwarding(request, None)
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -134,14 +195,18 @@ async def list_portforwardings(
             floating_ip=floating_ip,
             service_type=service_type,
             vm_id=vm_id,
-            token=None,  # 설정 파일의 키 사용
+            token=None,
         )
-        return result
+        if is_system_admin(profile):
+            return result
+        owned_vm_ids = _project_server_ids(profile)
+        return [rule for rule in result if rule.get("user_vm_id") in owned_vm_ids]
     except PortForwardClientError as e:
         _handle_client_error(e)
 
 
 # 동적 경로는 마지막에 정의 (/{rule_id} 패턴)
+
 
 @router.get("/portforward/{rule_id}", response_model=PortForwardingResponse, tags=["Network"])
 async def get_portforwarding(
@@ -150,7 +215,8 @@ async def get_portforwarding(
 ):
     """특정 포트포워딩 규칙 조회"""
     try:
-        result = await portforward_client.get_portforwarding(rule_id, None)  # 설정 파일의 키 사용
+        result = await portforward_client.get_portforwarding(rule_id, None)
+        _assert_rule_access(profile, result)
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -164,7 +230,9 @@ async def update_portforwarding(
 ):
     """포트포워딩 규칙 업데이트"""
     try:
-        result = await portforward_client.update_portforwarding(rule_id, request, None)  # 설정 파일의 키 사용
+        existing_rule = await portforward_client.get_portforwarding(rule_id, None)
+        _assert_rule_access(profile, existing_rule)
+        result = await portforward_client.update_portforwarding(rule_id, request, None)
         return result
     except PortForwardClientError as e:
         _handle_client_error(e)
@@ -177,6 +245,8 @@ async def delete_portforwarding(
 ):
     """포트포워딩 규칙 삭제"""
     try:
-        await portforward_client.delete_portforwarding(rule_id, None)  # 설정 파일의 키 사용
+        existing_rule = await portforward_client.get_portforwarding(rule_id, None)
+        _assert_rule_access(profile, existing_rule)
+        await portforward_client.delete_portforwarding(rule_id, None)
     except PortForwardClientError as e:
         _handle_client_error(e)

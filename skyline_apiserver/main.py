@@ -22,18 +22,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-import jose
+import jwt
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from skyline_apiserver.api.v1 import api_router
 from skyline_apiserver.config import CONF, configure
-from skyline_apiserver.context import RequestContext
 from skyline_apiserver.core.security import (
-    generate_profile,
     generate_profile_by_token,
     parse_access_token,
+    set_session_cookies,
 )
 from skyline_apiserver.db import api as db_api, setup as db_setup
 from skyline_apiserver.log import LOG, setup as log_setup
@@ -46,6 +45,19 @@ PROJECT_NAME = "Skyline API"
 configure("skyline")
 
 
+def _validate_security_configuration() -> None:
+    if len(CONF.default.secret_key) < 32:
+        raise RuntimeError(
+            "default.secret_key must be a cryptographically random value "
+            "of at least 32 characters"
+        )
+    if "*" in CONF.default.cors_allow_origins:
+        raise RuntimeError("Wildcard CORS origins cannot be used with credentialed requests")
+
+
+_validate_security_configuration()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log_setup(
@@ -55,17 +67,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     policies_setup()
     db_setup()
 
-    # Warn if the default secret key is still in use
-    _DEFAULT_SECRET_KEY = "aCtmgbcUqYUy_HNVg5BDXCaeJgJQzHJXwqbXr0Nmb2o"
-    if CONF.default.secret_key == _DEFAULT_SECRET_KEY:
-        LOG.warning(
-            "SECURITY WARNING: The default JWT secret key is in use. "
-            "This key is publicly known. Change 'secret_key' in your configuration "
-            "before deploying to production."
-        )
-
     # 인스턴스 라이프사이클 스케줄러 백그라운드 태스크 시작
     from skyline_apiserver.utils.lifecycle_scheduler import start_lifecycle_scheduler
+
     scheduler_task = asyncio.create_task(start_lifecycle_scheduler())
 
     LOG.debug("Skyline API server start")
@@ -80,7 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # 프로덕션 환경에서는 Swagger 문서 비활성화
-_is_production = os.getenv("SKYLINE_ENV", "development").lower() == "production"
+_is_production = os.getenv("SKYLINE_ENV", "production").lower() == "production"
 
 app = FastAPI(
     title=PROJECT_NAME,
@@ -92,9 +96,10 @@ app = FastAPI(
 
 # Add CORS middleware at module level (must be before app starts)
 _nextjs_url = os.environ.get("NEXTJS_URL", "http://localhost:3000")
-_cors_origins = [str(origin) for origin in CONF.default.cors_allow_origins]
-if _nextjs_url not in _cors_origins:
-    _cors_origins.append(_nextjs_url)
+_cors_origins = [str(origin).rstrip("/") for origin in CONF.default.cors_allow_origins]
+_nextjs_origin = _nextjs_url.rstrip("/")
+if _nextjs_origin not in _cors_origins:
+    _cors_origins.append(_nextjs_origin)
 if _cors_origins:
     app.add_middleware(
         CORSMiddleware,
@@ -106,30 +111,40 @@ if _cors_origins:
 
 
 @app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.path.startswith(constants.API_PREFIX):
+        response.headers["Cache-Control"] = "no-store"
+    if CONF.default.ssl_enabled:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
 async def validate_token(request: Request, call_next):
     url_path = request.url.path
-    LOG.debug(f"Request path: {url_path}")
+    LOG.debug("Request path: %s", url_path)
 
-    # Skip authentication for login and static endpoints
-    ignore_urls = [
+    # Skip authentication only for exact public endpoints.
+    public_urls = {
         f"{constants.API_PREFIX}/login",
         f"{constants.API_PREFIX}/logout",
         f"{constants.API_PREFIX}/signup",
         f"{constants.API_PREFIX}/websso",
-        "/static",
         "/docs",
         f"{constants.API_PREFIX}/openapi.json",
         "/favicon.ico",
         f"{constants.API_PREFIX}/sso",
         f"{constants.API_PREFIX}/contrib/keystone_endpoints",
-        # f"{constants.API_PREFIX}/contrib/domains",
         f"{constants.API_PREFIX}/contrib/regions",
         f"{constants.API_PREFIX}/limits",
-    ]
+    }
 
-    for ignore_url in ignore_urls:
-        if url_path.startswith(ignore_url):
-            return await call_next(request)
+    if url_path in public_urls or url_path == "/static" or url_path.startswith("/static/"):
+        return await call_next(request)
 
     # Validate JWT token from session cookie
     payload_str = request.cookies.get(CONF.default.session_name)
@@ -151,6 +166,7 @@ async def validate_token(request: Request, call_next):
             current_time = int(time.time())
             if profile.exp - current_time <= CONF.default.access_token_renew:
                 from skyline_apiserver import schemas
+
                 renewed_payload = schemas.Payload(
                     keystone_token=profile.keystone_token,
                     region=profile.region,
@@ -160,18 +176,18 @@ async def validate_token(request: Request, call_next):
                 request.state.token_needs_renewal = True
                 request.state.new_token = renewed_payload.toJWTPayload()
                 request.state.new_exp = str(renewed_payload.exp)
-        except jose.ExpiredSignatureError:
+        except jwt.ExpiredSignatureError:
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={"detail": constants.ERR_MSG_TOKEN_EXPIRED},
             )
-        except jose.JWTError:
+        except jwt.PyJWTError:
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={"detail": "Invalid token"},
             )
         except Exception as e:
-            LOG.warning(f"Cookie token validation failed: {type(e).__name__}: {e}")
+            LOG.warning("Cookie token validation failed: %s", type(e).__name__)
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={"detail": "Session expired or invalid. Please log in again."},
@@ -181,8 +197,11 @@ async def validate_token(request: Request, call_next):
 
     # Handle token renewal in response
     if hasattr(request.state, "token_needs_renewal") and request.state.token_needs_renewal:
-        response.set_cookie(CONF.default.session_name, request.state.new_token)
-        response.set_cookie(constants.TIME_EXPIRED_KEY, request.state.new_exp)
+        set_session_cookies(
+            response,
+            request.state.new_token,
+            int(request.state.new_exp),
+        )
 
     return response
 

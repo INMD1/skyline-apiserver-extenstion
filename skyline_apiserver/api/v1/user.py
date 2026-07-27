@@ -12,15 +12,37 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from fastapi import APIRouter, Depends, HTTPException
-from skyline_apiserver.schemas.user import SignupRequest, ChangePasswordRequest
-from skyline_apiserver.client.openstack.keystone import create_user, change_password
+import hmac
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+
 from skyline_apiserver.api.deps import get_profile
+from skyline_apiserver.client.openstack.keystone import change_password, create_user
+from skyline_apiserver.config import CONF
+from skyline_apiserver.schemas.user import ChangePasswordRequest, SignupRequest
 
 router = APIRouter()
 
+
+def _is_signup_authorized(internal_token: str | None) -> bool:
+    if CONF.default.signup_enabled:
+        return True
+
+    configured_token = CONF.default.signup_token
+    return bool(
+        configured_token
+        and internal_token
+        and hmac.compare_digest(configured_token.encode(), internal_token.encode())
+    )
+
+
 @router.post("/signup", tags=["User"])
-async def signup(user: SignupRequest):
+async def signup(
+    user: SignupRequest,
+    x_skyline_signup_token: str | None = Header(default=None),
+):
+    if not _is_signup_authorized(x_skyline_signup_token):
+        raise HTTPException(status_code=403, detail="Public signup is disabled")
     success, msg = await create_user(user)
     if not success:
         raise HTTPException(status_code=400, detail=msg)

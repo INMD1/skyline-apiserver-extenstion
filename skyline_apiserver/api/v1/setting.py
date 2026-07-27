@@ -30,6 +30,14 @@ from skyline_apiserver.utils.roles import assert_system_admin
 
 router = APIRouter()
 
+_REDACTED_SETTING_VALUE = "********"
+
+
+def _setting_response_value(key: str, value):
+    if key in constants.SETTINGS_HIDDEN_SET:
+        return _REDACTED_SETTING_VALUE
+    return value
+
 
 def assert_setting_key_exist(key: str):
     if key not in CONF.setting.base_settings:
@@ -64,7 +72,7 @@ def show_setting(
         value = db_setting.value
     return schemas.Setting(
         key=key,
-        value=value,
+        value=_setting_response_value(key, value),
         hidden=hidden,
         restart_service=restart_service,
     )
@@ -94,7 +102,7 @@ def update_setting(
     restart_service = setting.key in constants.SETTINGS_RESTART_SET
     return schemas.Setting(
         key=setting.key,
-        value=db_setting.value,
+        value=_setting_response_value(setting.key, db_setting.value),
         hidden=hidden,
         restart_service=restart_service,
     )
@@ -117,7 +125,7 @@ def list_settings(
     settings = {
         k: schemas.Setting(
             key=k,
-            value=getattr(CONF.setting, k),
+            value=_setting_response_value(k, getattr(CONF.setting, k)),
             hidden=k in constants.SETTINGS_HIDDEN_SET,
             restart_service=k in constants.SETTINGS_RESTART_SET,
         )
@@ -126,7 +134,7 @@ def list_settings(
     db_settings = db_api.list_settings()
     for item in db_settings:
         if item.key in CONF.setting.base_settings:
-            settings[item.key].value = item.value
+            settings[item.key].value = _setting_response_value(item.key, item.value)
     return schemas.Settings(settings=list(settings.values()))
 
 
@@ -153,7 +161,7 @@ def reset_setting(
     value = getattr(CONF.setting, key)
     return schemas.Setting(
         key=key,
-        value=value,
+        value=_setting_response_value(key, value),
         hidden=key in constants.SETTINGS_HIDDEN_SET,
         restart_service=key in constants.SETTINGS_RESTART_SET,
     )

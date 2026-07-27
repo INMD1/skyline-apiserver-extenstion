@@ -17,6 +17,8 @@ default:
   prometheus_endpoint: http://localhost:9091
   secret_key: 
   session_name: session
+  signup_enabled: false
+  signup_token: ''
   ssl_enabled: true
 openstack:
   admin_role_id: ''

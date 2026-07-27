@@ -21,12 +21,14 @@ from fastapi import status
 from fastapi.exceptions import HTTPException
 from httpx import Response, codes
 
+from skyline_apiserver.config import CONF
+
 
 def _http_request(
     method: types.FunctionType = httpx.Client.get,  # type: ignore
     **kwargs,
 ) -> Response:
-    with httpx.Client(verify=False) as client:
+    with httpx.Client(verify=CONF.default.cafile or True) as client:
         try:
             response = method(
                 client,

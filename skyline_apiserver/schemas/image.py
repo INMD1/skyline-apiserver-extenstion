@@ -7,14 +7,14 @@ class Image(BaseModel):
     name: str
     status: str
     visibility: str
-    size: int
+    size: Optional[int] = None
     disk_format: Optional[str] = None
     owner: str
     created_at: str
     updated_at: str
     tags: List[str]
-    min_disk: int
-    min_ram: int
+    min_disk: Optional[int] = None
+    min_ram: Optional[int] = None
     protected: bool
 
 class ImagesResponse(BaseModel):

@@ -1,25 +1,22 @@
 # 외부 포트포워딩 API 클라이언트
 # Proxy VM의 포트포워딩 서비스에 HTTP 요청을 보내는 클라이언트
 
-import httpx
 from typing import Any, Dict, List, Optional
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from skyline_apiserver.config import CONF
 from skyline_apiserver.log import LOG
 from skyline_apiserver.schemas.portforward import (
     PortForwardingCreate,
     PortForwardingUpdate,
-    PortForwardingResponse,
-    FloatingIPStatus,
-    StatusResponse,
-    PortAllocationResponse,
 )
 
 
 class PortForwardClientError(Exception):
     """포트포워딩 클라이언트 에러"""
+
     def __init__(self, status_code: int, detail: str):
         self.status_code = status_code
         self.detail = detail
@@ -39,13 +36,13 @@ def _get_headers(token: Optional[str] = None) -> Dict[str, str]:
     # 1. 명시적으로 전달된 토큰 사용
     if token:
         headers["Authorization"] = f"Bearer {token}"
-        LOG.debug(f"[PortForward] Using explicit token: {token[:20]}..." if len(token) > 20 else f"[PortForward] Using explicit token: {token}")
+        LOG.debug("[PortForward] Using explicit authorization credential")
     # 2. 설정 파일의 Authorization 키 사용
     else:
         auth_key = CONF.openstack.portforward_authorization_key
         if auth_key:
             headers["Authorization"] = f"Bearer {auth_key}"
-            LOG.debug(f"[PortForward] Using config auth key: {auth_key[:20]}..." if len(auth_key) > 20 else f"[PortForward] Using config auth key: {auth_key}")
+            LOG.debug("[PortForward] Using configured authorization credential")
         else:
             LOG.warning("[PortForward] No authorization token or key available")
     return headers
@@ -59,7 +56,9 @@ def _handle_response(response: httpx.Response) -> Dict[str, Any]:
         except Exception:
             detail = response.text
 
-        LOG.error(f"[PortForward] API Error - Status: {response.status_code}, Detail: {detail}, URL: {response.url}")
+        LOG.error(
+            f"[PortForward] API Error - Status: {response.status_code}, Detail: {detail}, URL: {response.url}"
+        )
         raise PortForwardClientError(response.status_code, detail)
 
     if response.status_code == 204:
@@ -81,6 +80,7 @@ _retry_on_network_error = retry(
 
 
 # ===== 포트포워딩 CRUD =====
+
 
 @_retry_on_network_error
 async def create_portforwarding(
@@ -179,6 +179,7 @@ async def delete_portforwarding(
 
 
 # ===== 상태 조회 =====
+
 
 @_retry_on_network_error
 async def get_status(token: Optional[str] = None) -> Dict[str, Any]:

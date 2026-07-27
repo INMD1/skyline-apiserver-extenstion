@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from jose import jwt
+import jwt
 from pydantic import BaseModel, Field
 
 from skyline_apiserver import config
@@ -66,7 +66,6 @@ class User(BaseModel):
     domain: Domain = Field(..., description="User domain")
     email: Optional[str] = Field(None, description="User email")
     description: Optional[str] = Field(None, description="User description")
-
 
 
 class PayloadBase(BaseModel):

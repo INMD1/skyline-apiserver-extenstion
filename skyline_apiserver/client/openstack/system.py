@@ -20,7 +20,6 @@ from pathlib import PurePath
 from typing import Any, Dict, List
 
 import httpx
-
 from keystoneauth1.identity.v3 import Token
 from keystoneauth1.session import Session
 
@@ -41,7 +40,7 @@ def get_project_scope_token(
     scope_auth = Token(auth_url=auth_url, token=keystone_token, **kwargs)  # type: ignore
 
     session = Session(
-        auth=scope_auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT
+        auth=scope_auth, verify=CONF.default.cafile or True, timeout=constants.DEFAULT_TIMEOUT
     )
     keystone_token = session.get_token()  # type: ignore
 
@@ -87,18 +86,19 @@ def get_endpoints(region: str) -> Dict[str, Any]:
 
 
 def get_projects(global_request_id: str, region: str, user: str) -> List[Any]:
-    base_url = CONF.openstack.keystone_url.rstrip('/')
+    base_url = CONF.openstack.keystone_url.rstrip("/")
     system_session = get_system_session()
     auth_token = system_session.get_token()
     headers = {"X-Auth-Token": auth_token}
-    
-    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+
+    with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
         resp = client.get(f"{base_url}/users/{user}/projects", headers=headers)
         if resp.status_code == 200:
-             projects_data = resp.json().get("projects", [])
-             # Convert to objects
-             from types import SimpleNamespace
-             return [
+            projects_data = resp.json().get("projects", [])
+            # Convert to objects
+            from types import SimpleNamespace
+
+            return [
                 SimpleNamespace(
                     id=p["id"],
                     name=p["name"],
@@ -107,17 +107,17 @@ def get_projects(global_request_id: str, region: str, user: str) -> List[Any]:
                     description=p.get("description", ""),
                 )
                 for p in projects_data
-             ]
+            ]
     return []
 
 
 def get_domains(global_request_id: str, region: str) -> Any:
-    base_url = CONF.openstack.keystone_url.rstrip('/')
+    base_url = CONF.openstack.keystone_url.rstrip("/")
     system_session = get_system_session()
     auth_token = system_session.get_token()
     headers = {"X-Auth-Token": auth_token}
-    
-    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+
+    with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
         resp = client.get(f"{base_url}/domains?enabled=true", headers=headers)
         if resp.status_code == 200:
             domains = resp.json().get("domains", [])

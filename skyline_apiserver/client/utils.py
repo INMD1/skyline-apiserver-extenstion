@@ -42,7 +42,9 @@ def generate_session(profile: schemas.Profile) -> Any:
         "project_id": profile.project.id,
     }
     auth = Token(**kwargs)
-    session = Session(auth=auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT)
+    session = Session(
+        auth=auth, verify=CONF.default.cafile or True, timeout=constants.DEFAULT_TIMEOUT
+    )
     session.auth.auth_ref = session.auth.get_auth_ref(session)  # type: ignore # noqa E501
     return session
 
@@ -61,7 +63,9 @@ def get_system_session() -> Session:
         project_domain_name=CONF.openstack.system_project_domain,
         reauthenticate=True,
     )
-    SESSION = Session(auth=auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT)
+    SESSION = Session(
+        auth=auth, verify=CONF.default.cafile or True, timeout=constants.DEFAULT_TIMEOUT
+    )
     return SESSION
 
 
@@ -69,7 +73,7 @@ def get_system_scope_access(keystone_token: str, region: str) -> AccessInfoV3:
     auth_url = get_endpoint(region, "identity", get_system_session())
     scope_auth = Token(auth_url, keystone_token, system_scope="all")
     session = Session(
-        auth=scope_auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT
+        auth=scope_auth, verify=CONF.default.cafile or True, timeout=constants.DEFAULT_TIMEOUT
     )
     return session.auth.get_auth_ref(session)  # type: ignore
 
@@ -130,7 +134,7 @@ def glance_client(
             version=version,
             session=session,
             global_request_id=global_request_id,
-            service_type='image',
+            service_type="image",
             interface=CONF.openstack.interface_type,
             region_name=region,
         )
@@ -159,7 +163,9 @@ def cinder_client(
     global_request_id: Optional[str] = None,
     version: str = constants.CINDER_API_VERSION,
 ) -> HTTPClient:
-    endpoint = CONF.openstack.cinder_endpoint or get_endpoint(region, "block-storage", session=session)
+    endpoint = CONF.openstack.cinder_endpoint or get_endpoint(
+        region, "block-storage", session=session
+    )
     client = CinderClient(
         version=version,
         session=session,

@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-import random
+import secrets
 from typing import Any, Dict, List, Optional
 
 from fastapi import status
@@ -27,11 +27,8 @@ from neutronclient.v2_0.client import _GeneratorWithMeta
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
-from skyline_apiserver.config import CONF
-
-import httpx
-from skyline_apiserver.schemas.portforward import PortForwardRequest
 from skyline_apiserver.client.utils import get_system_session
+from skyline_apiserver.schemas.portforward import PortForwardRequest
 
 
 # This function is used by the /portforward endpoint and should be kept.
@@ -85,18 +82,12 @@ def create_port_forwarding(req: PortForwardRequest, profile: schemas.Profile):
         return {"success": False, "error": str(e)}
 
 
-def get_floating_ip(
-    session: Session, region: str, floating_ip_id: str
-) -> Dict[str, Any]:
+def get_floating_ip(session: Session, region: str, floating_ip_id: str) -> Dict[str, Any]:
     nc = utils.neutron_client(session=session, region=region)
     return nc.show_floatingip(floating_ip_id)
 
 
-
-
-def find_port_by_internal_ip(
-    session: Session, region: str, internal_ip: str
-) -> Optional[str]:
+def find_port_by_internal_ip(session: Session, region: str, internal_ip: str) -> Optional[str]:
     """
     Internal IP 주소로 Neutron Port UUID를 찾습니다.
     포트포워딩 생성 시 필수적으로 필요합니다.
@@ -107,7 +98,7 @@ def find_port_by_internal_ip(
         ports = nc.list_ports(fixed_ips=f"ip_address={internal_ip}").get("ports", [])
         if not ports:
             raise Exception(f"No port found with internal IP: {internal_ip}")
-        
+
         # 첫 번째 포트 반환 (보통 하나만 있음)
         return ports[0]["id"]
     except Exception as e:
@@ -124,14 +115,14 @@ def create_port_forwarding_rule(
     protocol: str = "tcp",
 ) -> Dict[str, Any]:
     nc = utils.neutron_client(session=session, region=region)
-    
+
     # Auto-assign port if not specified
     if external_port is None:
         external_port = find_random_available_port(session, region, floatingip_id)
-    
+
     # Internal IP로부터 Port UUID 찾기 (필수)
     internal_port_id = find_port_by_internal_ip(session, region, internal_ip_address)
-    
+
     body = {
         "port_forwarding": {
             "protocol": protocol,
@@ -141,14 +132,12 @@ def create_port_forwarding_rule(
             "external_port": external_port,
         }
     }
-    
+
     # POST /v2.0/floatingips/{floatingip_id}/port_forwardings
     return nc.create_port_forwarding(floatingip=floatingip_id, body=body)["port_forwarding"]
 
 
-def delete_port_forwarding_rule(
-    session: Session, region: str, floatingip_id: str, pf_id: str
-):
+def delete_port_forwarding_rule(session: Session, region: str, floatingip_id: str, pf_id: str):
     # 시스템 세션 사용 (다른 프로젝트의 floating IP 접근을 위해)
     system_session = get_system_session()
     nc = utils.neutron_client(session=system_session, region=region)
@@ -156,13 +145,9 @@ def delete_port_forwarding_rule(
     nc.delete_port_forwarding(floatingip_id, pf_id)
 
 
-def get_port_forwarding_rules(
-    session: Session, region: str, floatingip_id: str
-) -> list:
+def get_port_forwarding_rules(session: Session, region: str, floatingip_id: str) -> list:
     nc = utils.neutron_client(session=session, region=region)
-    return nc.list_port_forwardings(floatingip=floatingip_id).get(
-        "port_forwardings", []
-    )
+    return nc.list_port_forwardings(floatingip=floatingip_id).get("port_forwardings", [])
 
 
 def get_port_forwardings_by_internal_ip(
@@ -175,7 +160,7 @@ def get_port_forwardings_by_internal_ip(
     # 시스템 세션 사용 (공유 floating IP 조회를 위해)
     system_session = get_system_session()
     nc = utils.neutron_client(session=system_session, region=region)
-    
+
     # 모든 floating IP 조회
     all_fips = nc.list_floatingips().get("floatingips", [])
 
@@ -186,35 +171,38 @@ def get_port_forwardings_by_internal_ip(
             pfs = nc.list_port_forwardings(floatingip=fip["id"]).get("port_forwardings", [])
             for pf in pfs:
                 if pf.get("internal_ip_address") == internal_ip:
-                    result.append({
-                        "id": pf["id"],
-                        "floating_ip_id": fip["id"],
-                        "floating_ip_address": fip["floating_ip_address"],
-                        "internal_ip_address": pf["internal_ip_address"],
-                        "internal_port": pf["internal_port"],
-                        "external_port": pf["external_port"],
-                        "protocol": pf["protocol"],
-                    })
+                    result.append(
+                        {
+                            "id": pf["id"],
+                            "floating_ip_id": fip["id"],
+                            "floating_ip_address": fip["floating_ip_address"],
+                            "internal_ip_address": pf["internal_ip_address"],
+                            "internal_port": pf["internal_port"],
+                            "external_port": pf["external_port"],
+                            "protocol": pf["protocol"],
+                        }
+                    )
         except Exception:
             # floating IP에 접근 권한이 없거나 오류 발생 시 스킵
             continue
-    
+
     return result
 
 
-def find_random_available_port(session: Session, region: str, floatingip_id: str, 
-                                 min_port: int = 10, max_port: int = 1000) -> int:
+def find_random_available_port(
+    session: Session, region: str, floatingip_id: str, min_port: int = 10, max_port: int = 1000
+) -> int:
     """Find a random available port on a floating IP."""
     nc = utils.neutron_client(session=session, region=region)
     existing_pfs = nc.list_port_forwardings(floatingip=floatingip_id).get("port_forwardings", [])
     used_ports = {pf["external_port"] for pf in existing_pfs}
-    
+
     # Try to find an available port (max 100 attempts)
     for _ in range(100):
-        port = random.randint(min_port, max_port)
+        port = min_port + secrets.randbelow(max_port - min_port + 1)
         if port not in used_ports:
             return port
-    
+
     raise Exception(f"Could not find available port on floating IP {floatingip_id}")
 
 
@@ -222,11 +210,7 @@ def find_random_available_port(session: Session, region: str, floatingip_id: str
 
 
 def create_security_group(
-    session: Session,
-    region: str,
-    name: str,
-    description: str,
-    project_id: Optional[str] = None
+    session: Session, region: str, name: str, description: str, project_id: Optional[str] = None
 ) -> Dict[str, Any]:
     nc = utils.neutron_client(session=session, region=region)
     body = {
@@ -237,7 +221,7 @@ def create_security_group(
     }
     if project_id:
         body["security_group"]["project_id"] = project_id
-    
+
     return nc.create_security_group(body)["security_group"]
 
 
@@ -255,28 +239,28 @@ def create_security_group_rule(
     project_id: Optional[str] = None,
 ):
     nc = utils.neutron_client(session=session, region=region)
-    
+
     rule_def = {
         "security_group_id": sg_id,
         "direction": direction,
         "ethertype": ethertype,
     }
-    
+
     if remote_group_id:
         rule_def["remote_group_id"] = remote_group_id
     if remote_ip_prefix:
         rule_def["remote_ip_prefix"] = remote_ip_prefix
-    
+
     if protocol == "any":
         rule_def["protocol"] = None
     elif protocol:
         rule_def["protocol"] = protocol
-        
+
     if port_range_min is not None:
         rule_def["port_range_min"] = port_range_min
     if port_range_max is not None:
         rule_def["port_range_max"] = port_range_max
-        
+
     if project_id:
         rule_def["project_id"] = project_id
 

@@ -22,26 +22,24 @@ from skyline_apiserver.config import CONF
 
 
 def is_system_admin(profile: schemas.Profile) -> bool:
-    roles = set(role.name for role in profile.roles)
-    if roles & set(CONF.openstack.system_admin_roles):
-        return True
-    return False
+    """Require both an admin role and the configured platform-admin identity."""
+    roles = {role.name for role in profile.roles}
+    admin_user_id = CONF.openstack.admin_user_id
+    return bool(
+        admin_user_id
+        and profile.user.id == admin_user_id
+        and roles & set(CONF.openstack.system_admin_roles)
+    )
 
 
 def is_system_reader_no_admin(profile: schemas.Profile) -> bool:
-    roles = set(role.name for role in profile.roles)
-    if (roles & set(CONF.openstack.system_reader_roles)) and (
-        not roles & set(CONF.openstack.system_admin_roles)
-    ):
-        return True
-    return False
+    roles = {role.name for role in profile.roles}
+    return bool(roles & set(CONF.openstack.system_reader_roles) and not is_system_admin(profile))
 
 
 def is_system_admin_or_reader(profile: schemas.Profile) -> bool:
-    roles = set(role.name for role in profile.roles)
-    if roles & set(CONF.openstack.system_admin_roles + CONF.openstack.system_reader_roles):
-        return True
-    return False
+    roles = {role.name for role in profile.roles}
+    return is_system_admin(profile) or bool(roles & set(CONF.openstack.system_reader_roles))
 
 
 def assert_system_admin(profile: schemas.Profile, exception: str) -> None:

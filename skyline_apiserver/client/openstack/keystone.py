@@ -27,19 +27,26 @@ from keystoneauth1.session import Session
 
 from skyline_apiserver import schemas
 from skyline_apiserver.client import utils
-from skyline_apiserver.client.openstack import cinder, nova, neutron
+from skyline_apiserver.client.openstack import cinder, neutron, nova
 from skyline_apiserver.config import CONF
 from skyline_apiserver.log import LOG
-from skyline_apiserver.schemas.user import SignupRequest, ChangePasswordRequest
+from skyline_apiserver.schemas.user import ChangePasswordRequest, SignupRequest
+
+
+def _get_keystone_url() -> str:
+    """Return the Keystone v3 base URL without a trailing slash."""
+    return CONF.openstack.keystone_url.rstrip("/")
 
 
 async def _delete_project(project_id: str):
     system_session = utils.get_system_session()
     auth_token = system_session.get_token()
     headers = {"X-Auth-Token": auth_token}
-    keystone_url = CONF.openstack.keystone_url
+    keystone_url = _get_keystone_url()
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        verify=CONF.default.cafile or True, follow_redirects=False
+    ) as client:
         delete_resp = await client.delete(
             f"{keystone_url}/projects/{project_id}", headers=headers
         )
@@ -52,12 +59,12 @@ async def _delete_user(user_id: str):
     system_session = utils.get_system_session()
     auth_token = system_session.get_token()
     headers = {"X-Auth-Token": auth_token}
-    keystone_url = CONF.openstack.keystone_url
+    keystone_url = _get_keystone_url()
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
-        delete_resp = await client.delete(
-            f"{keystone_url}/users/{user_id}", headers=headers
-        )
+    async with httpx.AsyncClient(
+        verify=CONF.default.cafile or True, follow_redirects=False
+    ) as client:
+        delete_resp = await client.delete(f"{keystone_url}/users/{user_id}", headers=headers)
         if delete_resp.status_code != 204:
             # TODO: Log this failure
             pass
@@ -67,12 +74,14 @@ async def create_user(user: SignupRequest):
     system_session = utils.get_system_session()
     auth_token = system_session.get_token()
     headers = {"X-Auth-Token": auth_token, "Content-Type": "application/json"}
-    keystone_url = CONF.openstack.keystone_url
+    keystone_url = _get_keystone_url()
 
     new_project_id = None
     new_user_id = None
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        verify=CONF.default.cafile or True, follow_redirects=False
+    ) as client:
         try:
             # 1. Create a new project for the user
             project_payload = {
@@ -139,9 +148,7 @@ async def create_user(user: SignupRequest):
             )
             member_role_resp = await client.put(member_role_url, headers=headers)
             if member_role_resp.status_code != 204:
-                raise Exception(
-                    f"Failed to assign member role to user: {member_role_resp.text}"
-                )
+                raise Exception(f"Failed to assign member role to user: {member_role_resp.text}")
 
             # 4. Assign 'admin' role to the admin user on the new project
             admin_user_id = CONF.openstack.admin_user_id
@@ -166,12 +173,12 @@ async def create_user(user: SignupRequest):
                     region=CONF.openstack.default_region,
                     name="all-internal-allow",
                     description="Allow traffic only from port forwarding VMs",
-                    project_id=new_project_id
+                    project_id=new_project_id,
                 )
-                
+
                 # 포트포워딩 VM IP 목록 가져오기
                 portforward_vm_ips = CONF.openstack.portforward_vm_internal_ips
-                
+
                 if portforward_vm_ips:
                     # 각 포트포워딩 VM IP에 대해 ingress 규칙 생성
                     for vm_ip in portforward_vm_ips:
@@ -184,13 +191,17 @@ async def create_user(user: SignupRequest):
                             protocol="any",
                             port_range_min=None,
                             port_range_max=None,
-                            project_id=new_project_id
+                            project_id=new_project_id,
                         )
-                    LOG.info(f"Created ingress rules for port forwarding VMs: {portforward_vm_ips}")
+                    LOG.info(
+                        f"Created ingress rules for port forwarding VMs: {portforward_vm_ips}"
+                    )
                 else:
                     # 포트포워딩 VM IP가 설정되지 않은 경우 경고
-                    LOG.warning("portforward_vm_internal_ips is not configured. VM isolation may not work correctly.")
-                
+                    LOG.warning(
+                        "portforward_vm_internal_ips is not configured. VM isolation may not work correctly."
+                    )
+
                 # Egress rule: Allow all outbound traffic (외부망 접근 허용)
                 neutron.create_security_group_rule(
                     session=system_session,
@@ -201,7 +212,7 @@ async def create_user(user: SignupRequest):
                     protocol="any",
                     port_range_min=None,
                     port_range_max=None,
-                    project_id=new_project_id
+                    project_id=new_project_id,
                 )
             except Exception as e:
                 # Log error but don't fail user creation as this is an auxiliary step
@@ -211,7 +222,6 @@ async def create_user(user: SignupRequest):
                 # I will print to log for now (or let it pass silently in production if logging not set up well)
                 # But since I don't see robust logging here, I'll just proceed.
                 LOG.warning(f"Failed to create default security group: {e}")
-
 
             return True, "User, project, and roles created successfully."
 
@@ -224,7 +234,7 @@ async def create_user(user: SignupRequest):
 
 
 async def change_password(user_id: str, keystone_token: str, req: ChangePasswordRequest):
-    base_url = CONF.openstack.keystone_url.rstrip("/")
+    base_url = _get_keystone_url()
     print(base_url)
     headers = {
         "X-Auth-Token": keystone_token,
@@ -237,7 +247,9 @@ async def change_password(user_id: str, keystone_token: str, req: ChangePassword
         }
     }
 
-    async with httpx.AsyncClient(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        verify=CONF.default.cafile or True, follow_redirects=False
+    ) as client:
         resp = await client.post(
             f"{base_url}/users/{user_id}/password",
             json=payload,
@@ -312,11 +324,11 @@ def revoke_token(
 
 
 def get_token_data(token: str, region: str, session: Session) -> Any:
-    base_url = CONF.openstack.keystone_url.rstrip('/')
+    base_url = _get_keystone_url()
     auth_token = session.get_token()
     headers = {"X-Auth-Token": auth_token, "X-Subject-Token": token}
-    
-    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+
+    with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
         resp = client.get(f"{base_url}/auth/tokens", headers=headers)
         if resp.status_code == 200:
             return resp.json()
@@ -324,11 +336,11 @@ def get_token_data(token: str, region: str, session: Session) -> Any:
 
 
 def get_user(id: str, region: str, session: Session) -> Any:
-    base_url = CONF.openstack.keystone_url.rstrip('/')
+    base_url = _get_keystone_url()
     auth_token = session.get_token()
     headers = {"X-Auth-Token": auth_token}
 
-    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+    with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
         resp = client.get(f"{base_url}/users/{id}", headers=headers)
         if resp.status_code == 200:
             user_data = resp.json().get("user", {})
@@ -336,5 +348,5 @@ def get_user(id: str, region: str, session: Session) -> Any:
             if "default_project_id" not in user_data:
                 user_data["default_project_id"] = None
             return SimpleNamespace(**user_data)
-    
+
     raise Exception(f"Failed to get user {id}: {resp.status_code} {resp.text}")

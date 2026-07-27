@@ -60,12 +60,10 @@ secret_key = Opt(
     name="secret_key",
     description=(
         "Secret key for signing JWT tokens. "
-        "WARNING: This default value is publicly known and MUST be changed "
-        "in production environments. Use a cryptographically random string "
-        "of at least 32 characters."
+        "A cryptographically random string of at least 32 characters is required."
     ),
     schema=StrictStr,
-    default="aCtmgbcUqYUy_HNVg5BDXCaeJgJQzHJXwqbXr0Nmb2o",
+    default="",
 )
 
 access_token_expire = Opt(
@@ -94,6 +92,20 @@ session_name = Opt(
     description="Session name",
     schema=StrictStr,
     default="session",
+)
+
+signup_enabled = Opt(
+    name="signup_enabled",
+    description="Allow unauthenticated users to create OpenStack users and projects",
+    schema=StrictBool,
+    default=False,
+)
+
+signup_token = Opt(
+    name="signup_token",
+    description="Shared secret accepted for signup requests from the trusted dashboard",
+    schema=StrictStr,
+    default="",
 )
 
 database_url = Opt(
@@ -172,6 +184,8 @@ ALL_OPTS = (
     access_token_renew,
     cors_allow_origins,
     session_name,
+    signup_enabled,
+    signup_token,
     ssl_enabled,
     cafile,
     database_url,

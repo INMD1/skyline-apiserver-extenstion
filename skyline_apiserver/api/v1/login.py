@@ -21,6 +21,7 @@ from pathlib import PurePath
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import httpx
 from fastapi import status
 from fastapi.exceptions import HTTPException
 from fastapi.param_functions import Depends, Form, Header
@@ -28,8 +29,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRouter
 from keystoneauth1.identity.v3 import Password, Token
 from keystoneauth1.session import Session
-from keystoneclient.client import Client as KeystoneClient
-import httpx
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import Response
@@ -38,7 +37,7 @@ from skyline_apiserver import schemas
 from skyline_apiserver.api import deps
 from skyline_apiserver.client import utils
 from skyline_apiserver.client.openstack import activity as activity_client
-from skyline_apiserver.client.openstack.keystone import get_token_data, get_user, revoke_token
+from skyline_apiserver.client.openstack.keystone import revoke_token
 from skyline_apiserver.client.openstack.system import (
     get_endpoints,
     get_project_scope_token,
@@ -47,9 +46,11 @@ from skyline_apiserver.client.openstack.system import (
 from skyline_apiserver.client.utils import generate_session, get_system_session
 from skyline_apiserver.config import CONF
 from skyline_apiserver.core.security import (
+    clear_session_cookies,
     generate_profile,
     generate_profile_by_token,
     parse_access_token,
+    set_session_cookies,
 )
 from skyline_apiserver.db import api as db_api
 from skyline_apiserver.log import LOG
@@ -68,18 +69,21 @@ def _get_default_project_id(
 ) -> Union[str, None]:
     system_session = get_system_session()
     system_token = system_session.get_token()
-    
+
     # Base URL for direct API calls - remove trailing slash if present
-    base_url = CONF.openstack.keystone_url.rstrip('/')
-    
+    base_url = CONF.openstack.keystone_url.rstrip("/")
+
     headers = {"X-Auth-Token": system_token}
-    
+
     if not user_id:
         # Get user_id from the session token
         token = session.get_token()
         # Use direct HTTP API to get token data
-        with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
-            resp = client.get(f"{base_url}/auth/tokens", headers={"X-Auth-Token": system_token, "X-Subject-Token": token})
+        with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
+            resp = client.get(
+                f"{base_url}/auth/tokens",
+                headers={"X-Auth-Token": system_token, "X-Subject-Token": token},
+            )
             if resp.status_code == 200:
                 token_data = resp.json()
                 _user_id = token_data["token"]["user"]["id"]
@@ -87,14 +91,14 @@ def _get_default_project_id(
                 return None
     else:
         _user_id = user_id
-    
+
     # Get user details directly via API
-    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+    with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
         resp = client.get(f"{base_url}/users/{_user_id}", headers=headers)
         if resp.status_code == 200:
             user_data = resp.json()
             return user_data.get("user", {}).get("default_project_id")
-    
+
     return None
 
 
@@ -124,7 +128,7 @@ def _get_projects_and_unscope_token(
         )
 
     session = Session(
-        auth=unscope_auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT
+        auth=unscope_auth, verify=CONF.default.cafile or True, timeout=constants.DEFAULT_TIMEOUT
     )
 
     # Get unscoped token
@@ -133,17 +137,17 @@ def _get_projects_and_unscope_token(
     # Get projects list directly via API to avoid service catalog issues
     # Remove trailing slash from auth_url if present to avoid double slashes
     # auth_url is CONF.openstack.keystone_url which ends with /v3/
-    base_url = auth_url.rstrip('/')
+    base_url = auth_url.rstrip("/")
     headers = {"X-Auth-Token": unscope_token}
-    
-    with httpx.Client(verify=CONF.default.cafile or False, follow_redirects=True) as client:
+
+    with httpx.Client(verify=CONF.default.cafile or True, follow_redirects=False) as client:
         # We need to call /auth/projects (which is relative to /v3)
         # base_url ends with /v3, so base_url + '/auth/projects' is correct
         resp = client.get(f"{base_url}/auth/projects", headers=headers)
         if resp.status_code != 200:
-             # If /auth/projects fails, try /projects just in case (though /auth/projects is standard for Keystone v3)
-             resp = client.get(f"{base_url}/projects", headers=headers)
-             if resp.status_code != 200:
+            # If /auth/projects fails, try /projects just in case (though /auth/projects is standard for Keystone v3)
+            resp = client.get(f"{base_url}/projects", headers=headers)
+            if resp.status_code != 200:
                 raise Exception(f"Failed to get projects: {resp.status_code} {resp.text}")
         projects_data = resp.json().get("projects", [])
 
@@ -270,20 +274,7 @@ def login(
             message=f"User {profile.user.name} logged in successfully.",
             status_result="success",
         )
-        response.set_cookie(
-            CONF.default.session_name,
-            profile.toJWTPayload(),
-            httponly=True,
-            secure=CONF.default.ssl_enabled,
-            samesite="strict",
-        )
-        response.set_cookie(
-            constants.TIME_EXPIRED_KEY,
-            str(profile.exp),
-            httponly=False,
-            secure=CONF.default.ssl_enabled,
-            samesite="strict",
-        )
+        set_session_cookies(response, profile.toJWTPayload(), profile.exp)
         return profile
 
 
@@ -383,18 +374,10 @@ def websso(
         nextjs_url = os.environ.get("NEXTJS_URL", "http://localhost:3000")
         redirect_url = f"{nextjs_url}/auth/sso-callback"
         response = RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
-        response.set_cookie(
-            CONF.default.session_name,
+        set_session_cookies(
+            response,
             profile.toJWTPayload(),
-            httponly=True,
-            secure=CONF.default.ssl_enabled,
-            samesite="lax",
-        )
-        response.set_cookie(
-            constants.TIME_EXPIRED_KEY,
-            str(profile.exp),
-            httponly=False,
-            secure=CONF.default.ssl_enabled,
+            profile.exp,
             samesite="lax",
         )
         return response
@@ -403,7 +386,6 @@ def websso(
 @router.get(
     "/profile",
     description="Get user profile.",
-    
     responses={
         200: {"model": schemas.Profile},
         401: {"model": schemas.UnauthorizedMessage},
@@ -467,11 +449,13 @@ def logout(
                 session=get_system_session(),
             )
             auth = Token(auth_url=auth_url, token=body.keystone_token, reauthenticate=False)
-            session = Session(auth=auth, verify=CONF.default.cafile, timeout=constants.DEFAULT_TIMEOUT)
+            session = Session(
+                auth=auth, verify=CONF.default.cafile or True, timeout=constants.DEFAULT_TIMEOUT
+            )
             session.invalidate()
         except Exception as e:
             LOG.debug(str(e))
-    response.delete_cookie(CONF.default.session_name)
+    clear_session_cookies(response)
     return schemas.Message(message="Logout OK")
 
 
@@ -515,18 +499,5 @@ def switch_project(
             detail="Project switch failed",
         )
     else:
-        response.set_cookie(
-            CONF.default.session_name,
-            new_profile.toJWTPayload(),
-            httponly=True,
-            secure=CONF.default.ssl_enabled,
-            samesite="strict",
-        )
-        response.set_cookie(
-            constants.TIME_EXPIRED_KEY,
-            str(new_profile.exp),
-            httponly=False,
-            secure=CONF.default.ssl_enabled,
-            samesite="strict",
-        )
+        set_session_cookies(response, new_profile.toJWTPayload(), new_profile.exp)
         return new_profile
