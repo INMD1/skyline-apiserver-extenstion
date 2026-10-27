@@ -268,21 +268,24 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
                 default_user = "alpine"
 
         # OS 무관하게 항상 비밀번호 SSH 활성화 userdata 적용
-        # Ubuntu 등은 /etc/ssh/sshd_config.d/ override 파일이
-        # PasswordAuthentication no를 강제하므로 write_files로 덮어씀
+        # - user/password: 이미지 기본 유저 이름을 default_user로 고정하고 그 유저에 비밀번호 설정
+        #   (chpasswd.list는 유저가 없으면 실패하고, 기본 유저는 lock_passwd: true로 잠겨 있음)
+        # - sshd는 같은 옵션이 여러 번 나오면 "처음 값"을 쓰므로 override 파일은 00-으로 가장 먼저 읽히게 함
+        #   (Ubuntu의 60-cloudimg-settings.conf가 PasswordAuthentication no를 강제함)
         userdata_payload = (
             f"#cloud-config\n"
+            f"user:\n"
+            f"  name: {default_user}\n"
+            f"  lock_passwd: false\n"
+            f"password: '{default_password}'\n"
             f"ssh_pwauth: true\n"
             f"chpasswd:\n"
-            f"  list: |\n"
-            f"    {default_user}:{default_password}\n"
             f"  expire: false\n"
             f"write_files:\n"
-            f"  - path: /etc/ssh/sshd_config.d/99-password-auth.conf\n"
+            f"  - path: /etc/ssh/sshd_config.d/00-password-auth.conf\n"
             f"    content: |\n"
             f"      PasswordAuthentication yes\n"
             f"      KbdInteractiveAuthentication yes\n"
-            f"      ChallengeResponseAuthentication yes\n"
             f"    owner: root:root\n"
             f"    permissions: '0644'\n"
             f"runcmd:\n"
@@ -291,7 +294,10 @@ async def _provision_instance(session, profile, instance: InstanceCreate, reques
             f"  - sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config\n"
             f"  - sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config\n"
             f"  # sshd_config.d 내 기존 override 파일도 일괄 처리\n"
-            f'  - for f in /etc/ssh/sshd_config.d/*.conf; do [ -f "$f" ] && sed -i \'s/^PasswordAuthentication.*/PasswordAuthentication yes/\' "$f"; done\n'
+            f'  - for f in /etc/ssh/sshd_config.d/*.conf; do [ -f "$f" ] && sed -i -e \'s/^PasswordAuthentication.*/PasswordAuthentication yes/\' -e \'s/^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/\' "$f"; done\n'
+            f"  # 비밀번호 재적용 (이미지에 유저가 이미 있어 users-groups 단계에서 누락된 경우 대비)\n"
+            f"  - echo '{default_user}:{default_password}' | chpasswd\n"
+            f"  - passwd -u {default_user} 2>/dev/null || usermod -U {default_user} 2>/dev/null || true\n"
             f"  # sshd 재시작 (systemd / OpenRC / SysV 모두 대응)\n"
             f"  - if command -v systemctl > /dev/null 2>&1; then systemctl restart sshd || systemctl restart ssh; elif command -v rc-service > /dev/null 2>&1; then rc-service sshd restart; else service sshd restart 2>/dev/null || service ssh restart; fi\n"
         )
